@@ -9,6 +9,7 @@ import sys
 import random
 import pprint
 import ujson
+# import copy
 from collections import deque
 from collections import defaultdict
 
@@ -59,16 +60,59 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
     directly.
     """
     agents_copy = ujson.loads(ujson.dumps(X.agents))
-    # agents_copy = copy.deepcopy(X.agents)  # if working in Pythonista
-    X_copy = KappaMolecule(agents_copy,
-                           count=count,
-                           id_shift=id_shift,
-                           system=system,
-                           sig=signature,
-                           views=views,
-                           nav=nav,
-                           canon=canon)
-    del agents_copy
+    # agents_copy = copy.deepcopy(X.agents)  # if working in Pythonista, sigh
+
+    if id_shift == 0:
+        X_copy = KappaMolecule(agents_copy,
+                               count=count,
+                               id_shift=id_shift,
+                               system=system,
+                               sig=signature,
+                               views=views,
+                               nav=nav,
+                               canon=canon,
+                               init=False)
+
+        # comprehensions are significantly faster than deepcopy()
+        X_copy.composition = {k: v for k, v in X.composition.items()}
+        X_copy.free_site = {k: v for k, v in X.free_site.items()}
+        X_copy.free_site_list = {k: [x for x in X.free_site_list[k]] for k in X.free_site_list}
+        X_copy.bond_type = {k: v for k, v in X.bond_type.items()}
+        X_copy.bond_type_list = {k: [x for x in X.bond_type_list[k]] for k in X.bond_type_list}
+        X_copy.agent_self_binding = {k: v for k, v in X.agent_self_binding.items()}
+        X_copy.unbinding = {k: v for k, v in X.unbinding.items()}
+        X_copy.binding = {k: v for k, v in X.binding.items()}
+        X_copy.adjacency = {k: [x for x in X.adjacency[k]] for k in X.adjacency}
+        X_copy.type_slice = [k for k in X.type_slice]
+        X_copy.navigation = {k: v for k, v in X.navigation.items()}
+        X_copy.local_views = {k: [x for x in X.local_views[k]] for k in X.local_views}
+        X_copy.canonical = X.canonical
+        X_copy.sum_formula = X.sum_formula
+        X_copy.rarest_type = X.rarest_type
+        X_copy.embedding_anchor = X.embedding_anchor
+        X_copy.propensities = {'sites': X_copy.free_site, 'bonds': X_copy.bond_type,
+                               'unbind': X_copy.unbinding, 'bind': X_copy.binding}
+        X_copy.size = len(X_copy.agents)
+        # max label
+        X_copy.label_counter = int(get_identifier(next(reversed(X_copy.agents)), delimiters=X_copy.id_sep)[1])
+    else:
+        X_copy = KappaMolecule(agents_copy,
+                               count=count,
+                               id_shift=id_shift,
+                               system=system,
+                               sig=signature,
+                               views=views,
+                               nav=nav,
+                               canon=canon)
+
+        X_copy.composition = {k: v for k, v in X.composition.items()}
+        X_copy.local_views = {k: [x for x in X.local_views[k]] for k in X.local_views}
+        X_copy.canonical = X.canonical
+        X_copy.sum_formula = X.sum_formula
+        X_copy.rarest_type = X.rarest_type
+
+        X_copy.initialize_light()
+
     return X_copy
 
 
@@ -350,7 +394,8 @@ class KappaMolecule:
         * all types are string, except when otherwise noted.
     """
 
-    def __init__(self, agents=None, count=0, id_shift=0, sig=None, system=None, views={}, nav=True, canon=True):
+    def __init__(self, agents=None, count=0, id_shift=0, sig=None, system=None, views={},
+                 nav=True, canon=True, init=True):
 
         # change these definitions only if you know what you are doing
         self.bond_sep = '@'
@@ -366,12 +411,7 @@ class KappaMolecule:
         self.rarest_type = ''
 
         self.system = system
-
-        # signature is only used for computing internal reaction propensities
-        if self.system:
-            self.signature = system.signature
-        else:
-            self.signature = sig
+        self.signature = sig
 
         # we need these to compute reaction propensities
         self.free_site = {}  # number of free sites of a given type
@@ -385,15 +425,17 @@ class KappaMolecule:
         self.unbinding = {}  # propensity of internal bond dissociation; indexed by bond type
         self.binding = {}  # propensity of internal bond formation; indexed by bond type
 
-        # This is to unify access by the heap in SiteSim; irrelevant outside simulation
-        self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
-                             'unbind': self.unbinding, 'bind': self.binding}
+        # To unify access by the heap in SiteSim; irrelevant outside simulation
+        self.propensities = {}
 
         # main data structures representing the complex; some redundancy here for convenience
-        self.agents = {}
+
+        # we get the 'agents' data structure from the parser
+        self.agents = agents
+
         self.adjacency = {}
         self.bonds = {}
-        self.type_slice = {}
+        self.type_slice = []
         self.embedding_anchor = None
         self.navigation = {}
         # flags
@@ -401,47 +443,82 @@ class KappaMolecule:
         self.canon = canon
         # Local views of the mixture in the context of which expressions are canonicalized
         self.system_views = views
-        if self.system:
-            if self.system.mixture:
-                self.system_views = system.mixture.local_views
         self.local_views = {}
 
         # auxiliary variables
         self.label_counter = 0  # largest label
         self.next = 0
+        self.id_shift = id_shift
 
+        if self.system:  # override so we don't have to set sig and views
+            # signature is only used for computing internal reaction propensities
+            self.signature = self.system.signature
+            if self.system.mixture:
+                self.system_views = self.system.mixture.local_views
+
+        if init:
+            self.initialize()
+
+    def initialize(self):
         # if data are empty, this generates an empty KappaMolecule
-        if not agents:
+        if not self.agents:
             return
-
-        # we get the 'agents' data structure from the parser
-        self.agents = agents
-        # replace numeric labels of bonds by stubs
-        self.stubbify_bonds(id_shift=id_shift)
-
-        self.label_counter = int(get_identifier(list(self.agents)[-1], delimiters=self.id_sep)[1])
         # size
         self.size = len(self.agents)
+        # max label
+        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
+
+        # replace numeric labels of bonds by stubs
+        self.stubbify_bonds(id_shift=self.id_shift)
+
+        # This is to unify access by the heap in SiteSim; irrelevant outside simulation
+        self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
+                             'unbind': self.unbinding, 'bind': self.binding}
         # get the composition
         self.get_composition()
         self.rarest_type = next(iter(self.composition))
-
-        if self.nav:
-            # get the type lists for matching
-            self.type_slice = []
-            for at in self.composition:
-                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-            self.embedding_anchor = self.type_slice[0][0]
-            # construct adjacency lists
-            self.make_adjacency_lists()
-            # assemble the navigation list for embeddings
-            self.make_navigation_list()
 
         if self.canon:
             self.make_adjacency_lists()
             # requires adjacency list
             self.get_local_views()
             self.canonical = self.canonicalize()
+
+        if self.nav:
+            # get the type lists for matching
+            for at in self.composition:
+                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
+            self.embedding_anchor = self.type_slice[0][0]
+            # construct adjacency lists
+            if not self.adjacency:
+                self.make_adjacency_lists()
+            # assemble the navigation list for embeddings
+            self.make_navigation_list()
+
+        # calculate reaction propensities
+        if self.signature:
+            self.internal_reactivity()
+
+    def initialize_light(self):
+        # size
+        self.size = len(self.agents)
+        # max label
+        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
+
+        # replace numeric labels of bonds by stubs
+        self.stubbify_bonds(id_shift=self.id_shift)
+
+        # This is to unify access by the heap in SiteSim; irrelevant outside simulation
+        self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
+                             'unbind': self.unbinding, 'bind': self.binding}
+        # construct adjacency lists
+        self.make_adjacency_lists()
+        # get the type lists for matching
+        for at in self.composition:
+            self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
+        self.embedding_anchor = self.type_slice[0][0]
+        # assemble the navigation list for embeddings
+        self.make_navigation_list()
 
         # calculate reaction propensities
         if self.signature:
@@ -548,8 +625,7 @@ class KappaMolecule:
                     # Now that we have standardized, we return to the usual bond format.
                     b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
                     # collect unique bonds
-                    if b not in self.bonds:
-                        self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
+                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
                     # count the bond *types* (to compute reactivity); here labels don't matter
                     if self.signature:
                         # Note that 'n' and 'n1' are agent types, not names.
@@ -660,8 +736,7 @@ class KappaMolecule:
                     (t1, l1, s1), (t2, l2, s2) = sorted([(n1, int(new_id1), site1), (n, int(new_id), site)])
                     b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
                     # collect unique bonds
-                    if b not in self.bonds:
-                        self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
+                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
                     # count the bond *types* (to compute reactivity); here labels don't matter
                     if self.signature:
                         (t1, s1), (t2, s2) = sorted([(n1, site1), (n, site)])
