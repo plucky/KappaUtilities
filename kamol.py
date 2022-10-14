@@ -103,7 +103,8 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
                                sig=signature,
                                views=views,
                                nav=nav,
-                               canon=canon)
+                               canon=canon,
+                               init=False)
 
         X_copy.composition = {k: v for k, v in X.composition.items()}
         X_copy.local_views = {k: [x for x in X.local_views[k]] for k in X.local_views}
