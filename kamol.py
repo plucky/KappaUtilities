@@ -79,6 +79,7 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
         X_copy.free_site_list = {k: [x for x in X.free_site_list[k]] for k in X.free_site_list}
         X_copy.bond_type = {k: v for k, v in X.bond_type.items()}
         X_copy.bond_type_list = {k: [x for x in X.bond_type_list[k]] for k in X.bond_type_list}
+        X_copy.bonds = {k: v for k, v in X.bonds.items()}
         X_copy.agent_self_binding = {k: v for k, v in X.agent_self_binding.items()}
         X_copy.unbinding = {k: v for k, v in X.unbinding.items()}
         X_copy.binding = {k: v for k, v in X.binding.items()}
@@ -466,12 +467,12 @@ class KappaMolecule:
             return
         # size
         self.size = len(self.agents)
-        # max label
-        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
 
         # replace numeric labels of bonds by stubs
         self.stubbify_bonds(id_shift=self.id_shift)
 
+        # max label when labeling is normalized
+        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
         # This is to unify access by the heap in SiteSim; irrelevant outside simulation
         self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
                              'unbind': self.unbinding, 'bind': self.binding}
@@ -503,12 +504,12 @@ class KappaMolecule:
     def initialize_light(self):
         # size
         self.size = len(self.agents)
-        # max label
-        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
 
         # replace numeric labels of bonds by stubs
         self.stubbify_bonds(id_shift=self.id_shift)
 
+        # max label when labeling is normalized
+        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
         # This is to unify access by the heap in SiteSim; irrelevant outside simulation
         self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
                              'unbind': self.unbinding, 'bind': self.binding}
