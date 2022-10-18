@@ -6,13 +6,15 @@ This module manages the 'mixture' of KappaMolecules.
 
 import re
 import os
+import sys
+import json
+
 import kamol
 
 
 def load_and_unpack(kappa_file, system=None, local_views={}, signature=None, canon=True):
     """
     Load a Kappa snapshot file.
-
     Format:
 
     // Snapshot [Event: 662579]
@@ -32,17 +34,29 @@ def load_and_unpack(kappa_file, system=None, local_views={}, signature=None, can
       etc.
     """
     complexes = []
-    lv = local_views  # note: if there is a system.mixture, kamol will use the mixture's local views
+    rg_state = None
+    lv = local_views  # note: if there is a system.mixture, KappaMolecule will use the mixture's local views
     kappa = kamol.Kappa()  # the parser
     if not os.path.isfile(kappa_file):
         raise Exception("Cannot find snapshot file %s" % kappa_file)
     else:
         with open(kappa_file, "r") as data:
-            event = float(data.readline().split('Event:')[1][:-2].strip())
+            event = int(data.readline().split('Event:')[1][:-2].strip())
             uuid = data.readline().split('"uuid" : ')[1][1:-2]
-            t = data.readline().split('T0')[1][:-2]
-            time = float(re.sub(r'"', ' ', t).strip())
-            data.readline()
+            for i in range(0, 4):
+                peek = data.readline()
+                if "RG" in peek:
+                    # RNG state
+                    rg_state = json.loads(peek.split('// RG state : ')[1][:-1])
+                elif "T0" in peek:
+                    t = peek.split('T0')[1][:-2]
+                    time = float(re.sub(r'"', ' ', t).strip())
+                elif "LV" in peek:
+                    # local views included
+                    lv = json.loads(peek.split('// LV : ')[1][:-1])
+                else:
+                    break
+            # data.readline()
 
             while True:
                 entry = next_complex_from_file(data)
@@ -58,9 +72,8 @@ def load_and_unpack(kappa_file, system=None, local_views={}, signature=None, can
                                               canon=canon,
                                               views=lv)  # local_views 'lv' will be updated
                 complexes.append(komplex)
-
     del kappa
-    return event, uuid, time, complexes, lv
+    return event, uuid, rg_state, time, complexes, lv
 
 
 def next_complex_from_file(data):
@@ -135,7 +148,8 @@ class SnapShot:
     def __init__(self, file=None, complexes=[], system=None, signature=None, canon=True):
         self.file = file
         self.origin_uuid = ''
-        self.time = 0.
+        self.rg_state = None
+        self.time = 0
         self.event = 0
         self.number_of_species = 0
         self.complexes = []  # list of 'KappaMolecule's
@@ -151,7 +165,7 @@ class SnapShot:
                                         local_views=self.local_views,
                                         signature=signature,
                                         canon=canon)
-                self.event, self.origin_uuid, self.time, self.complexes, self.local_views = value
+                self.event, self.origin_uuid, self.rg_state, self.time, self.complexes, self.local_views = value
             else:
                 raise Exception("Unknown file extension %s" % self.file)
         elif complexes:

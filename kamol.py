@@ -18,6 +18,17 @@ class ParseFail(Exception):
     pass
 
 
+def convert(text): return int(text) if text.isdigit() else text
+
+
+def alphanum_key(key): return [convert(c) for c in re.split('([0-9]+)', key)]
+
+
+def bond2type(b):
+    x = sorted([(re.sub(r'.\d+.', '', b[0][0]), b[0][1]), (re.sub(r'.\d+.', '', b[1][0]), b[1][1])])
+    return ''.join([x[0][0], '.', x[0][1]]), ''.join([x[1][0], '.', x[1][1]])
+
+
 def is_number(s):
     """
     Tests if 's' is a number
@@ -567,6 +578,12 @@ class KappaMolecule:
         else:
             self.stubbify_bonds_with_shift(remap=self.normalize_ids(id_shift=id_shift))
 
+        # keep sorted
+        for st in self.signature.site_types:
+            self.free_site_list[st].sort(key=lambda x: alphanum_key(x[0]))
+        for bt in self.signature.bond_types:
+            self.bond_type_list[bt].sort(key=lambda x: (alphanum_key(x[0][0]), alphanum_key(x[0][1])))
+
     def stubbify_bonds_no_shift(self):
         """
         Replaces numeric bond labels with unique bond stubs.
@@ -618,24 +635,14 @@ class KappaMolecule:
                     #  (2) count the bond types (used to calculate reaction propensities).
                     # Note: we can get here only from the case in which we have already seen the partner
                     # of the bond of agent 'name' at site 'site'. That partner is 'name1' at site 'site1'.
-                    n1, l1 = self.agents[name1]['info']['type'], self.agents[name1]['info']['id']
-                    n, l = self.agents[name]['info']['type'], self.agents[name]['info']['id']
-                    # We next recast a bond by separating type from id in the name in order to sort the two
-                    # endpoints, thus standardizing the bond. In the line below, there is no possibility
-                    # of confusion arising from sorting, because the unique id is included.
-                    (t1, l1, s1), (t2, l2, s2) = sorted([(n1, int(l1), site1), (n, int(l), site)])
-                    # Now that we have standardized, we return to the usual bond format.
-                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
+                    # We standardize the bond by sorting.
+                    b = sorted([(name1, site1), (name, site)], key=lambda x: (alphanum_key(x[0]), alphanum_key(x[1])))
+                    b = tuple(b)
                     # collect unique bonds
                     self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
                     # count the bond *types* (to compute reactivity); here labels don't matter
                     if self.signature:
-                        # Note that 'n' and 'n1' are agent types, not names.
-                        # This sort might swap the bound sites of n1 and n if n1 == n, which does not matter, since
-                        # this is about bond types.
-                        (t1, s1), (t2, s2) = sorted([(n1, site1), (n, site)])
-                        # (We are dealing with bond types here, hence the 'dot' format.)
-                        bt = (''.join([t1, '.', s1]), ''.join([t2, '.', s2]))
+                        bt = bond2type(b)
                         self.bond_type[bt] += 1
                         self.bond_type_list[bt] += [b]
                 else:
@@ -1197,6 +1204,7 @@ class KappaMolecule:
         Prints the intra-molecular binding propensities of the molecule.
         """
         if self.signature:
+            form = '1.5E'
             info = "\n"
             s = f'reaction propensities'
             info += f'{s:>{pp_width}}\n'
@@ -1204,12 +1212,12 @@ class KappaMolecule:
             for bt in self.unbinding:
                 s1, s2 = bt
                 b = f"{s1}-{''.join([s2.split('.')[1], '.', s2.split('.')[0]])}"
-                info += f'{b:>{pp_width}}: {self.unbinding[bt]:1.5E}\n'
+                info += f'{b:>{pp_width}}: {self.unbinding[bt]:{form}}\n'
             info += f'{"binding per instance":>{pp_width}}\n'
             for bt in self.binding:
                 s1, s2 = bt
                 b = f"{s1}-{''.join([s2.split('.')[1], '.', s2.split('.')[0]])}"
-                info += f'{b:>{pp_width}}: {self.binding[bt]:1.5E}\n'
+                info += f'{b:>{pp_width}}: {self.binding[bt]:{form}}\n'
             info += f'{"excluded agent self-binding counts per instance":>{pp_width}}\n'
             for bt in self.agent_self_binding:
                 if self.agent_self_binding[bt] != 0:
