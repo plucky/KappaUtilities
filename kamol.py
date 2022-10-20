@@ -579,10 +579,11 @@ class KappaMolecule:
             self.stubbify_bonds_with_shift(remap=self.normalize_ids(id_shift=id_shift))
 
         # keep sorted
-        for st in self.signature.site_types:
-            self.free_site_list[st].sort(key=lambda x: alphanum_key(x[0]))
-        for bt in self.signature.bond_types:
-            self.bond_type_list[bt].sort(key=lambda x: (alphanum_key(x[0][0]), alphanum_key(x[0][1])))
+        if self.signature:
+            for st in self.signature.site_types:
+                self.free_site_list[st].sort(key=lambda x: alphanum_key(x[0]))
+            for bt in self.signature.bond_types:
+                self.bond_type_list[bt].sort(key=lambda x: (alphanum_key(x[0][0]), alphanum_key(x[0][1])))
 
     def stubbify_bonds_no_shift(self):
         """
