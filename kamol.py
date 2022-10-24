@@ -64,14 +64,27 @@ def add_identifier(agent_type, id, delimiters=('.', '.')):
     return agent_type + delimiters[0] + id + delimiters[1]
 
 
+def sort_site_and_bond_lists(mol, s='both'):
+    if s == 'both' or s == 'site':
+        for st in mol.signature.site_types:
+            mol.free_site_list[st].sort(key=lambda x: alphanum_key(x[0]))
+            for (i, site) in enumerate(mol.free_site_list[st]):
+                mol.free_site_list_idx[st][site] = i  # indices start with 0
+
+    if s == 'both' or s == 'bond':
+        for bt in mol.signature.bond_types:
+            mol.bond_list[bt].sort(key=lambda x: (alphanum_key(x[0][0]), alphanum_key(x[0][1])))
+            for (i, bond) in enumerate(mol.bond_list[bt]):
+                mol.bond_list_idx[bt][bond] = i  # indices start with 0
+
+
 def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={}, nav=True, canon=True):
     """
-    'Deep copies' a KappaMolecule by using a temporary deep-copy  of the agent dictionary to generate
+    'Deep copies' a KappaMolecule by using a temporary deep-copy of the agent dictionary to generate
     a new KappaMolecule. This is simpler than attempting to deep-copy the KappaMolecule structure
     directly.
     """
     agents_copy = ujson.loads(ujson.dumps(X.agents))
-    # agents_copy = copy.deepcopy(X.agents)  # if working in Pythonista, sigh
 
     if id_shift == 0:
         X_copy = KappaMolecule(agents_copy,
@@ -79,7 +92,7 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
                                id_shift=id_shift,
                                system=system,
                                sig=signature,
-                               views=views,
+                               s_views=views,
                                nav=nav,
                                canon=canon,
                                init=False)
@@ -88,8 +101,10 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
         X_copy.composition = {k: v for k, v in X.composition.items()}
         X_copy.free_site = {k: v for k, v in X.free_site.items()}
         X_copy.free_site_list = {k: [x for x in X.free_site_list[k]] for k in X.free_site_list}
+        X_copy.free_site_list_idx = {k: {x: v for x, v in X.free_site_list_idx[k].items()} for k in X.free_site_list}
         X_copy.bond_type = {k: v for k, v in X.bond_type.items()}
-        X_copy.bond_type_list = {k: [x for x in X.bond_type_list[k]] for k in X.bond_type_list}
+        X_copy.bond_list = {k: [x for x in X.bond_list[k]] for k in X.bond_list}
+        X_copy.bond_list_idx = {k: {x: v for x, v in X.bond_list_idx[k].items()} for k in X.bond_list}
         X_copy.bonds = {k: v for k, v in X.bonds.items()}
         X_copy.agent_self_binding = {k: v for k, v in X.agent_self_binding.items()}
         X_copy.unbinding = {k: v for k, v in X.unbinding.items()}
@@ -102,8 +117,6 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
         X_copy.sum_formula = X.sum_formula
         X_copy.rarest_type = X.rarest_type
         X_copy.embedding_anchor = X.embedding_anchor
-        X_copy.propensities = {'sites': X_copy.free_site, 'bonds': X_copy.bond_type,
-                               'unbind': X_copy.unbinding, 'bind': X_copy.binding}
         X_copy.size = len(X_copy.agents)
         # max label
         X_copy.label_counter = int(get_identifier(next(reversed(X_copy.agents)), delimiters=X_copy.id_sep)[1])
@@ -113,7 +126,7 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
                                id_shift=id_shift,
                                system=system,
                                sig=signature,
-                               views=views,
+                               s_views=views,
                                nav=nav,
                                canon=canon,
                                init=False)
@@ -355,7 +368,7 @@ def Canonical2Complex(canonical, views, nav=True, canon=True):
     """
     _kappa = Kappa()
     expression = _kappa.decode(canonical, views)
-    molecule = KappaMolecule(agents=_kappa.parser(expression), views={}, nav=nav, canon=canon)
+    molecule = KappaMolecule(agents=_kappa.parser(expression), s_views={}, nav=nav, canon=canon)
     del _kappa
     return molecule
 
@@ -371,7 +384,7 @@ def KappaComplex(expression, count=0, id_shift=0, system=None, signature=None, v
                              id_shift=id_shift,
                              system=system,
                              sig=signature,
-                             views=views,
+                             s_views=views,
                              nav=nav,
                              canon=canon)
     del _kappa
@@ -407,7 +420,7 @@ class KappaMolecule:
         * all types are string, except when otherwise noted.
     """
 
-    def __init__(self, agents=None, count=0, id_shift=0, sig=None, system=None, views={},
+    def __init__(self, agents=None, count=0, id_shift=0, sig=None, system=None, s_views={}, l_views=False,
                  nav=True, canon=True, init=True):
 
         # change these definitions only if you know what you are doing
@@ -418,7 +431,6 @@ class KappaMolecule:
         self.count = count
         self.size = 0
         self.canonical = ''  # the canonicalized expression
-        self.is_pattern = False
         self.composition = {}
         self.sum_formula = ''
         self.rarest_type = ''
@@ -430,16 +442,15 @@ class KappaMolecule:
         self.free_site = {}  # number of free sites of a given type
         self.free_site_list = {}  # lists of sites indexed by site type
         self.bond_type = {}  # number of bonds of a given type (w/o labels, as in self.bonds)
-        self.bond_type_list = {}  # lists of bonds indexed by bond type
+        self.bond_list = {}  # lists of bonds indexed by bond type
+        self.free_site_list_idx = {}
+        self.bond_list_idx = {}
         self.agent_self_binding = {}  # excluded intra-agent binding opportunities; indexed by bond type
 
         # reaction propensities of molecular species (takes into account the number of instances <count>)
         # these are combinatorial counts multiplied with reaction rate constants, if defined.
         self.unbinding = {}  # propensity of internal bond dissociation; indexed by bond type
         self.binding = {}  # propensity of internal bond formation; indexed by bond type
-
-        # To unify access by the heap in SiteSim; irrelevant outside simulation
-        self.propensities = {}
 
         # main data structures representing the complex; some redundancy here for convenience
 
@@ -454,9 +465,12 @@ class KappaMolecule:
         # flags
         self.nav = nav
         self.canon = canon
+        self.has_local_views = l_views
+        self.is_pattern = False
         # Local views of the mixture in the context of which expressions are canonicalized
-        self.system_views = views
-        self.local_views = {}
+        self.system_views = s_views
+        if not self.has_local_views:  # if has_local_views, the views are supplied with 'agents'
+            self.local_views = {}
 
         # auxiliary variables
         self.label_counter = 0  # largest label
@@ -469,13 +483,14 @@ class KappaMolecule:
             if self.system.mixture:
                 self.system_views = self.system.mixture.local_views
 
+        # if data are empty, this generates an empty KappaMolecule
+        if not self.agents:
+            return
+
         if init:
             self.initialize()
 
     def initialize(self):
-        # if data are empty, this generates an empty KappaMolecule
-        if not self.agents:
-            return
         # size
         self.size = len(self.agents)
 
@@ -484,9 +499,6 @@ class KappaMolecule:
 
         # max label when labeling is normalized
         self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
-        # This is to unify access by the heap in SiteSim; irrelevant outside simulation
-        self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
-                             'unbind': self.unbinding, 'bind': self.binding}
         # get the composition
         self.get_composition()
         self.rarest_type = next(iter(self.composition))
@@ -494,11 +506,14 @@ class KappaMolecule:
         if self.canon:
             self.make_adjacency_lists()
             # requires adjacency list
-            self.get_local_views()
+            if not self.has_local_views:
+                self.get_local_views()
+            self.make_local_view_lists()
             self.canonical = self.canonicalize()
 
         if self.nav:
-            # get the type lists for matching
+            # Get the type lists for site graph matching. This is mostly for offline processing.
+            # In simulation, we don't match via graph traversal, but by computing a canonical form.
             for at in self.composition:
                 self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
             self.embedding_anchor = self.type_slice[0][0]
@@ -521,9 +536,6 @@ class KappaMolecule:
 
         # max label when labeling is normalized
         self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
-        # This is to unify access by the heap in SiteSim; irrelevant outside simulation
-        self.propensities = {'sites': self.free_site, 'bonds': self.bond_type,
-                             'unbind': self.unbinding, 'bind': self.binding}
         # construct adjacency lists
         self.make_adjacency_lists()
         # get the type lists for matching
@@ -554,13 +566,17 @@ class KappaMolecule:
 
     def clear_type_lists(self):
         self.free_site_list = {}
+        self.free_site_list_idx = {}
         for st in self.signature.site_types:
             self.free_site[st] = 0
             self.free_site_list[st] = []
-        self.bond_type_list = {}
+            self.free_site_list_idx[st] = {}
+        self.bond_list = {}
+        self.bond_list_idx = {}
         for bt in self.signature.bond_types:
             self.bond_type[bt] = 0
-            self.bond_type_list[bt] = []
+            self.bond_list[bt] = []
+            self.bond_list_idx[bt] = {}
             self.agent_self_binding[bt] = 0
 
     def stubbify_bonds(self, id_shift=0, normalize=True):
@@ -578,12 +594,7 @@ class KappaMolecule:
         else:
             self.stubbify_bonds_with_shift(remap=self.normalize_ids(id_shift=id_shift))
 
-        # keep sorted
-        if self.signature:
-            for st in self.signature.site_types:
-                self.free_site_list[st].sort(key=lambda x: alphanum_key(x[0]))
-            for bt in self.signature.bond_types:
-                self.bond_type_list[bt].sort(key=lambda x: (alphanum_key(x[0][0]), alphanum_key(x[0][1])))
+        # sort_site_and_bond_lists(self)
 
     def stubbify_bonds_no_shift(self):
         """
@@ -644,8 +655,9 @@ class KappaMolecule:
                     # count the bond *types* (to compute reactivity); here labels don't matter
                     if self.signature:
                         bt = bond2type(b)
+                        self.bond_list[bt].append(b)
+                        self.bond_list_idx[bt][b] = self.bond_type[bt]  # (ab)used as a counter
                         self.bond_type[bt] += 1
-                        self.bond_type_list[bt] += [b]
                 else:
                     # The site is not bound.
                     # Accumulate the free sites in the molecule.
@@ -653,8 +665,9 @@ class KappaMolecule:
                         # count the free sites (to compute reaction propensities)
                         st = ''.join([self.agents[name]['info']['type'], '.', site])
                         agent_free_site_types.add(st)  # a local agent-specific set, used below
+                        self.free_site_list[st].append((name, site))
+                        self.free_site_list_idx[st][(name, site)] = self.free_site[st]  # (ab)used as a counter
                         self.free_site[st] += 1
-                        self.free_site_list[st] += [(name, site)]
             if self.signature:
                 # Accumulate the intra-agent binding opportunities within the whole molecule.
                 # This will be used to correct the intra-molecular bond formation propensity
@@ -699,7 +712,7 @@ class KappaMolecule:
             new_agents[new_name] = {}
             new_agents[new_name]['iface'] = {}
             new_agents[new_name]['info'] = {'id': new_id, 'type': type1, 'sID': sID, 'degree': 0}
-            new_agents[new_name]['local_view'] = ''
+            new_agents[new_name]['local_view'] = self.agents[name]['local_view']  # shift-independent
             degree = 0
             agent_free_site_types = []
             for site in self.agents[name]['iface']:
@@ -751,16 +764,17 @@ class KappaMolecule:
                     if self.signature:
                         (t1, s1), (t2, s2) = sorted([(n1, site1), (n, site)])
                         bt = (''.join([t1, '.', s1]), ''.join([t2, '.', s2]))
+                        self.bond_list[bt].append(b)
+                        self.bond_list_idx[bt][b] = self.bond_type[bt]  # (ab)used as a counter
                         self.bond_type[bt] += 1
-                        self.bond_type_list[bt] += [b]
                 else:
                     if self.signature:
                         # count the free sites for the whole molecule (to compute reactivity)
                         st = ''.join([self.agents[name]['info']['type'], '.', site])
                         agent_free_site_types += [st]
+                        self.free_site_list[st].append((new_name, site))
+                        self.free_site_list_idx[st][(new_name, site)] = self.free_site[st]  # (ab)used as a counter
                         self.free_site[st] += 1
-                        self.free_site_list[st] += [(new_name, site)]
-
             if self.signature:
                 for bt in self.signature.bond_types:
                     st1, st2 = bt
@@ -788,19 +802,20 @@ class KappaMolecule:
             lv = []
             iface = self.agents[name]['iface']
             for s in iface:
-                state = ''
+                view = ''
                 b = iface[s]['bond']
                 if b != '.' and b != '#':
                     other_name, other_s = b.split(self.bond_sep)
                     other_type = self.agents[other_name]['info']['type']
-                    state += f'[{other_type}.{other_s}]'
+                    view += f'[{other_type}.{other_s}]'
                 else:
-                    state += f'[{b}]'
-                state += '{' + f"{iface[s]['state']}" + '}'
-                lv.append((s, state))
+                    view += f'[{b}]'
+                # skip the state in this specific context
+                # view += '{' + f"{iface[s]['state']}" + '}'
+                lv.append((s, view))
             local_view = ''
-            for s in [f"{s}{state} " for (s, state) in sorted(lv)]:
-                local_view += s
+            for site_view in [f"{s}{view} " for (s, view) in sorted(lv)]:
+                local_view += site_view
             # this is the local view of agent 'name'
             l_view = self.agents[name]['info']['type'] + '(' + local_view[:-1] + ')'
 
@@ -810,11 +825,16 @@ class KappaMolecule:
             if l_view not in self.system_views:
                 running_id += 1
                 self.system_views[l_view] = running_id
+
+    def make_local_view_lists(self):
+        self.local_views = {}
+        for name in self.agents:
             # make lists of agents with the same local view
-            if l_view in self.local_views:
-                self.local_views[l_view].append(name)
+            lv = self.agents[name]['local_view']
+            if lv in self.local_views:
+                self.local_views[lv].append(name)
             else:
-                self.local_views[l_view] = [name]
+                self.local_views[lv] = [name]
 
     def canonicalize(self):
         """
@@ -822,7 +842,7 @@ class KappaMolecule:
         """
         if self.system_views == {}:
             return ''
-        # get the local view with the smallest index in the system
+        # get the local view with the smallest index in the _system_ (!)
         _, mlv = min([(self.system_views[lv], lv) for lv in self.local_views])
         # This is the list of local nodes with that view
         node_list = self.local_views[mlv]
@@ -899,18 +919,12 @@ class KappaMolecule:
 
     def make_adjacency_lists(self):
         """
-        Construct type-sorted adjacency lists for each agent
+        Construct adjacency lists for each agent
         """
         self.adjacency = {}
         for name1 in self.agents:
-            adjacency = []
-            for s1 in self.agents[name1]['iface']:
-                if self.bond_sep in self.agents[name1]['iface'][s1]['bond']:
-                    name2, _, _ = self.agents[name1]['iface'][s1]['bond'].partition(self.bond_sep)
-                    # t2, id2 = get_identifier(name2)
-                    # adjacency.append((t2, int(id2)))
-                    adjacency.append(name2)
-            # self.adjacency[name1] = [add_identifier(t2, str(id2)) for (t2, id2) in sorted(adjacency, reverse=True)]
+            iface = self.agents[name1]['iface']
+            adjacency = [iface[s1]['bond'].split(self.bond_sep)[0] for s1 in iface if iface[s1]['bond'] != '.']
             self.adjacency[name1] = adjacency
 
     def make_navigation_list(self):
@@ -989,10 +1003,12 @@ class KappaMolecule:
         self.agents = renamed
 
         if self.signature:
-            new_bond_type_list = {}
+            new_bond_list = {}
+            new_bond_list_idx = {}
             for bt in self.signature.bond_types:
                 new_list = []
-                for (b1, b2) in self.bond_type_list[bt]:
+                new_list_idx = {}
+                for (b1, b2) in self.bond_list[bt]:
                     n1, s1 = b1
                     n2, s2 = b2
                     t1, id1 = get_identifier(n1)
@@ -1001,24 +1017,32 @@ class KappaMolecule:
                     new_id2 = remapping[id2]
                     (t1, l1, s1), (t2, l2, s2) = sorted([(t1, int(new_id1), s1), (t2, int(new_id2), s2)])
                     b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
-                    new_list += [b]
-                new_bond_type_list[bt] = new_list
-            self.bond_type_list = new_bond_type_list
+                    new_list.append(b)
+                    new_list_idx[b] = len(new_list) - 1
+                new_bond_list[bt] = new_list
+                new_bond_list_idx[bt] = new_list_idx
+            self.bond_list = new_bond_list
+            self.bond_list_idx = new_bond_list_idx
 
             new_free_site_list = {}
+            new_free_site_list_idx = {}
             for st in self.signature.site_types:
                 new_list = []
+                new_list_idx = {}
                 for (name, site) in self.free_site_list[st]:
                     t1, id1 = get_identifier(name)
                     new_id1 = remapping[id1]
                     new_name = add_identifier(t1, str(new_id1))
-                    new_list += [(new_name, site)]
+                    new_list.append((new_name, site))
+                    new_list_idx[(new_name, site)] = len(new_list) - 1
                 new_free_site_list[st] = new_list
+                new_free_site_list_idx[st] = new_list_idx
             self.free_site_list = new_free_site_list
+            self.free_site_list_idx = new_free_site_list_idx
 
     def remap(self, change='none', id_shift=0):
         """
-        A wrapper for remap_ids().
+        A wrapper for remap_ids() -- of use for external calls; not used in setting up the object.
         'change' = {'none', 'normalize', 'randomize'} directs the construction of the remapping map.
         Identifiers are shifted by 'id_shift'.
         """
@@ -1043,8 +1067,8 @@ class KappaMolecule:
             self.make_navigation_list()
 
         if self.canon:
-            self.local_views = {}
             self.get_local_views()
+            self.make_local_view_lists()
             self.canonical = self.canonicalize()
 
     def get_composition(self):
@@ -1178,7 +1202,7 @@ class KappaMolecule:
                     s1, s2 = bt
                     b = f"{s1}-{''.join([s2.split('.')[1], '.', s2.split('.')[0]])}"
                     info += f'{"":>{pp_width}} {b}: {self.bond_type[bt]}\n'
-                    temp = f'{"":>{pp_width}} {b}: {self.bond_type_list[bt]}'
+                    temp = f'{"":>{pp_width}} {b}: {self.bond_list[bt]}'
                     temp = pprint.pformat(temp, indent=0, width=200, compact=False)
                     info += temp[1:-1].replace('"', '') + '\n'
             s = f'{len(self.free_site)} free site types:'

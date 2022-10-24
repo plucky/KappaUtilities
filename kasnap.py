@@ -70,7 +70,7 @@ def load_and_unpack(kappa_file, system=None, local_views={}, signature=None, can
                                               system=system,
                                               sig=signature,
                                               canon=canon,
-                                              views=lv)  # local_views 'lv' will be updated
+                                              s_views=lv)  # local_views 'lv' will be updated
                 complexes.append(komplex)
     del kappa
     return event, uuid, rg_state, time, complexes, lv
