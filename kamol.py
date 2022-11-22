@@ -152,7 +152,7 @@ class Kappa:
     agents[name] =
            {
                'iface': { site_name: {'state': state, 'bond': bond label}
-               'info': {'id': local id, 'type': agent type, 'sID': KaSim identifier, 'degree': int n}
+               'info': {'id': local id, 'type': agent type, 'sID': SiteSim identifier, 'degree': int n}
                'local_view': local_view
             }
 
@@ -401,7 +401,7 @@ class KappaMolecule:
         self.agents[name] =
            {
             'iface': { site_name: {'state': state, 'bond': bond stub}
-            'info': {'id': local id, 'type': agent type, 'sID': KaSim identifier, 'degree': int n}
+            'info': {'id': local id, 'type': agent type, 'sID': SiteSim identifier, 'degree': int n}
             'local_view': local_view
             }
         self.adjacency[name] = [ agent1, agent2, ... ]
@@ -469,8 +469,7 @@ class KappaMolecule:
         self.is_pattern = False
         # Local views of the mixture in the context of which expressions are canonicalized
         self.system_views = s_views
-        if not self.has_local_views:  # if has_local_views, the views are supplied with 'agents'
-            self.local_views = {}
+        self.local_views = {}
 
         # auxiliary variables
         self.label_counter = 0  # largest label
@@ -480,6 +479,7 @@ class KappaMolecule:
         if self.system:  # override so we don't have to set sig and views
             # signature is only used for computing internal reaction propensities
             self.signature = self.system.signature
+            self.canon = self.system.canonicalize
             if self.system.mixture:
                 self.system_views = self.system.mixture.local_views
 
@@ -1135,6 +1135,7 @@ class KappaMolecule:
         num = {}
         s = ''
         for name in self.agents:
+            s += self.agents[name]["info"]["sID"]
             if label:
                 s += f'{name}('
             else:
