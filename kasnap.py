@@ -6,7 +6,6 @@ This module manages the 'mixture' of KappaMolecules.
 
 import re
 import os
-import sys
 import json
 
 import kamol
