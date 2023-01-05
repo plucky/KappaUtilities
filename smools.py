@@ -1,6 +1,6 @@
 # Walter Fontana 2022
 """
-Small tools...
+This module contains small tools...
 """
 
 
