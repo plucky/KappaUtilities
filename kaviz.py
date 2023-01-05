@@ -8,7 +8,6 @@ import traceback
 
 import kagraph
 import kamol
-import os
 
 def show():
     plt.show(block=False)
