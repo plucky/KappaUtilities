@@ -347,8 +347,8 @@ if __name__ == '__main__':
     # print_map(maps)
 
     SGM = SiteGraphMatcher()
-    G1 = kamol.KappaComplex('A(a[1],b[2]),A(a[1],b[3]),B(a[2],c[4]),B(a[3],c[5]),C(b[4],x{u}),C(b[5],x{p})')
-    G2 = kamol.KappaComplex('A(a[1],b[2]),A(a[1],b[3]),B(a[2],c[4]),B(a[3],c[5]),C(b[5],x{p}),C(b[4],x{u})')
+    G1 = kamol.KappaComplex('A(a[1],b[2]),A(a[1],b[3]),B(a[2],c[4]),B(a[3],c[5]),C(b[4],x{u}[.]),C(b[5],x{p}[.])')
+    G2 = kamol.KappaComplex('A(a[1],b[2]),A(a[1],b[3]),B(a[2],c[4]),B(a[3],c[5]),C(b[5],x{p}[.]),C(b[4],x{u}[.])')
     print(G1.show())
     print(G2.show())
     maps = SGM.automorphisms(G1)
