@@ -9,7 +9,6 @@ import sys
 import random
 import pprint
 import ujson
-# import copy
 from collections import deque
 from collections import defaultdict
 
