@@ -4,7 +4,7 @@ Convert a KappaMolecule into networkx graph and define some manipulations
 """
 import networkx as nx
 import kamol
-
+import os
 
 class KappaGraph:
     def __init__(self, komplex):
