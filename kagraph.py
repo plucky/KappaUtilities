@@ -99,7 +99,9 @@ class KappaGraph:
                 n += 1
         return G, n
 
-    def delete_edge_lists(self, edge_list=[]):
+    def delete_edge_lists(self, edge_list=None):
+        if not edge_list:
+            return
         # to unify handling, convert to a list of lists (such as coming from a cycle basis)
         if not isinstance(edge_list[0], list):
             edge_list = [edge_list]
