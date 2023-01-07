@@ -144,7 +144,7 @@ class SnapShot:
     Alternatively import an already-made list of KappaMolecules (complexes).
     """
 
-    def __init__(self, file=None, complexes=[], system=None, signature=None, canon=True):
+    def __init__(self, file=None, complexes=[], system=None, signature=None, canon=True, sort=False):
         self.file = file
         self.origin_uuid = ''
         self.rg_state = None
@@ -173,6 +173,8 @@ class SnapShot:
             self.local_views = gather_local_views_of_snapshot(self.complexes)
 
         self.number_of_species = len(self.complexes)
+        if sort:
+            self.complexes.sort(key=lambda x: x.size, reverse=True)
 
     def get_size_distribution(self, dictionary=False):
         """
