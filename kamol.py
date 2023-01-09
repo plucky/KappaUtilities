@@ -420,7 +420,7 @@ class KappaMolecule:
     """
 
     def __init__(self, agents=None, count=0, id_shift=0, sig=None, system=None, s_views={}, l_views=False,
-                 nav=True, canon=True, init=True):
+                 nav=True, canon=True, init=True):  # should I rather use **kwargs?
 
         # change these definitions only if you know what you are doing
         self.bond_sep = '@'
@@ -479,6 +479,7 @@ class KappaMolecule:
             # signature is only used for computing internal reaction propensities
             self.signature = self.system.signature
             self.canon = self.system.canonicalize
+            self.nav = False
             if self.system.mixture:
                 self.system_views = self.system.mixture.local_views
 
@@ -598,7 +599,7 @@ class KappaMolecule:
     def stubbify_bonds_no_shift(self):
         """
         Replaces numeric bond labels with unique bond stubs.
-        For example, A.14.(b[2]), Z.3.[j[2]] becomes A.14.[Z.3.@j], Z.3.[A.14.@b].
+        For example, A.14.(b[2]), Z.3.(j[2]) becomes A.14.(b[Z.3.@j]), Z.3.(j[A.14.@b]).
 
         generates:
             self.bonds
