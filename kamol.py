@@ -111,7 +111,7 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
         X_copy.adjacency = {k: [x for x in X.adjacency[k]] for k in X.adjacency}
         X_copy.type_slice = [k for k in X.type_slice]
         X_copy.navigation = {k: v for k, v in X.navigation.items()}
-        X_copy.local_views = {k: [x for x in X.local_views[k]] for k in X.local_views}
+        X_copy.local_views = {k: {x: v for x, v in X.local_views[k].items()} for k in X.local_views}
         X_copy.canonical = X.canonical
         X_copy.sum_formula = X.sum_formula
         X_copy.rarest_type = X.rarest_type
@@ -131,7 +131,7 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views={},
                                init=False)
 
         X_copy.composition = {k: v for k, v in X.composition.items()}
-        X_copy.local_views = {k: [x for x in X.local_views[k]] for k in X.local_views}
+        X_copy.local_views = {k: {x: v for x, v in X.local_views[k].items()} for k in X.local_views}
         X_copy.canonical = X.canonical
         X_copy.sum_formula = X.sum_formula
         X_copy.rarest_type = X.rarest_type
@@ -832,9 +832,9 @@ class KappaMolecule:
             # make lists of agents with the same local view
             lv = self.agents[name]['local_view']
             if lv in self.local_views:
-                self.local_views[lv].append(name)
+                self.local_views[lv][name] = 1  # just an indicator dict for fast search and deletion
             else:
-                self.local_views[lv] = [name]
+                self.local_views[lv] = {name: 1}
 
     def canonicalize(self):
         """
@@ -845,7 +845,7 @@ class KappaMolecule:
         # get the local view with the smallest index in the _system_ (!)
         _, mlv = min([(self.system_views[lv], lv) for lv in self.local_views])
         # This is the list of local nodes with that view
-        node_list = self.local_views[mlv]
+        node_list = list(self.local_views[mlv].keys())
 
         canonic = []
         for node in node_list:
