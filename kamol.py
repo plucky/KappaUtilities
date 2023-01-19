@@ -503,7 +503,18 @@ class KappaMolecule:
         self.get_composition()
         self.rarest_type = next(iter(self.composition))
 
-        if self.canon:
+        canonicalize = False
+        if self.system:
+            if self.size < self.system.size_threshold and self.canon:
+                canonicalize = True
+            else:
+                self.make_adjacency_lists()
+                self.canonical = self.system.served_name
+                self.system.served_name += 1
+        else:
+            canonicalize = self.canon
+
+        if canonicalize:
             self.make_adjacency_lists()
             # requires adjacency list
             if not self.has_local_views:
@@ -538,12 +549,13 @@ class KappaMolecule:
         self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
         # construct adjacency lists
         self.make_adjacency_lists()
-        # get the type lists for matching
-        for at in self.composition:
-            self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-        self.embedding_anchor = self.type_slice[0][0]
-        # assemble the navigation list for embeddings
-        self.make_navigation_list()
+        if self.nav:
+            # get the type lists for matching
+            for at in self.composition:
+                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
+            self.embedding_anchor = self.type_slice[0][0]
+            # assemble the navigation list for embeddings
+            self.make_navigation_list()
 
         # calculate reaction propensities
         if self.signature:
