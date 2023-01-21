@@ -425,7 +425,7 @@ class KappaMolecule:
                  id_shift=0,
                  sig=None,
                  system=None,
-                 s_views=None,
+                 s_views={},
                  l_views=False,
                  nav=True,
                  canon=True,
