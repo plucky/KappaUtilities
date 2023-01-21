@@ -392,10 +392,10 @@ def KappaComplex(expression, count=0, id_shift=0, system=None, signature=None, v
 
 class KappaMolecule:
     """
-    Constructs the internal representation of a kappa 'molecule'.
+    Constructs the representation of a kappa 'molecule'.
 
-    The internal representation is built from a 'halfway-there' representation (the
-    agent dictionary) provided by the Kappa parser or taken from another molecule.
+    This representation is built from a 'halfway-there' representation (the agent dictionary)
+    provided by the Kappa parser or taken from another molecule.
 
         self.agents[name] =
            {
@@ -419,8 +419,17 @@ class KappaMolecule:
         * all types are string, except when otherwise noted.
     """
 
-    def __init__(self, agents=None, count=0, id_shift=0, sig=None, system=None, s_views={}, l_views=False,
-                 nav=True, canon=True, init=True):  # should I rather use **kwargs?
+    def __init__(self,
+                 agents=None,
+                 count=0,
+                 id_shift=0,
+                 sig=None,
+                 system=None,
+                 s_views=None,
+                 l_views=False,
+                 nav=True,
+                 canon=True,
+                 init=True):
 
         # change these definitions only if you know what you are doing
         self.bond_sep = '@'
@@ -549,6 +558,7 @@ class KappaMolecule:
         self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
         # construct adjacency lists
         self.make_adjacency_lists()
+
         if self.nav:
             # get the type lists for matching
             for at in self.composition:
@@ -803,7 +813,7 @@ class KappaMolecule:
         Obtain the lexically ordered local view at each agent.
         """
         # get the last used system-wide index of local views encountered thus far
-        if self.system_views == {}:
+        if not self.system_views:
             running_id = 0
         else:
             running_id = self.system_views[next(reversed(self.system_views))]
@@ -852,7 +862,7 @@ class KappaMolecule:
         """
         Canonicalize the kappa expression.
         """
-        if self.system_views == {}:
+        if not self.system_views:
             return ''
         # get the local view with the smallest index in the _system_ (!)
         _, mlv = min([(self.system_views[lv], lv) for lv in self.local_views])
