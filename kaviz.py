@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import matplotlib.collections as artcoll
 import traceback
+import xlsxwriter as xlsx
 
 import kagraph
 import kamol
@@ -358,6 +359,52 @@ def plot_complex(molecule,
     return r
 
 
+def make_yfile(kappa=None, filename=None):
+    """
+    makes an input file (xlsx) for the yEd network editor
+    """
+    nodes = [n for n in kappa.agents]
+    node_types = [kappa.agents[n]['info']['type'] for n in kappa.agents]
+    workbook = xlsx.Workbook(filename)
+    node_sheet = workbook.add_worksheet('Node List')
+    edge_sheet = workbook.add_worksheet('Edge List')
+    bold = workbook.add_format({'bold': 1})
+
+    # nodes
+    node_sheet.write('A1', 'id', bold)
+    node_sheet.write('B1', 'node_type', bold)
+    for row in range(1, len(nodes)+1):
+        node_sheet.write(row, 0, str(nodes[row-1]))
+        node_sheet.write(row, 1, node_types[row-1])
+
+    # edges
+    source_list = []
+    target_list = []
+    interaction_list = []
+    interaction_labels = []
+    for (a1, s1), (a2, s2) in kappa.bonds:
+        info = a1 + '@' + s1 + '--' + a2 + '@' + s2
+        source_list.append(a1)
+        target_list.append(a2)
+        sites = info.split('--')
+        agent1, _ = kamol.get_identifier(sites[0].split('@')[0])
+        agent2, _ = kamol.get_identifier(sites[1].split('@')[0])
+        agent_pair = sorted((agent1, agent2))
+        txt = f'{agent_pair[0]}-{agent_pair[1]}'
+        interaction_list.append(txt)
+        interaction_labels.append(info)
+    edge_sheet.write('A1', 'source', bold)
+    edge_sheet.write('B1', 'target', bold)
+    edge_sheet.write('C1', 'interaction', bold)
+    edge_sheet.write('D1', 'label', bold)
+    for row in range(1, len(source_list)+1):
+        edge_sheet.write(row, 0, source_list[row-1])
+        edge_sheet.write(row, 1, target_list[row-1])
+        edge_sheet.write(row, 2, interaction_labels[row-1])
+        edge_sheet.write(row, 3, interaction_list[row - 1])
+    workbook.close()
+
+
 if __name__ == '__main__':
     import kasnap
 
@@ -391,7 +438,7 @@ if __name__ == '__main__':
     print(c1)
     print(c1.canonical)
 
-    c2 = kamol.Canonical2Complex(c1.canonical, c1.system_views)
+    c2 = kamol.Canonical2Expression(c1.canonical, c1.system_views)
     r2 = Renderer(c2)
     r2.render(labels='no', node_size=20, font_size=9, line_width=1, edge_color='gray')
 
