@@ -1,4 +1,4 @@
-# Walter Fontana at 4/28/23
+# Walter Fontana, 2022
 """
 This module defines the internal representation of a kappa molecule. It implements the parser, and a
  number of utilities, such as copying molecules, binding two molecules, removing a bond from a molecule,
@@ -157,6 +157,7 @@ class Kappa:
 
     This is usually passed to KappaMolecule to generate the internal representation used in this package.
     """
+
     def __init__(self):
         # change these definitions only if you know what you are doing
         self.symbols = r'[_~][a-zA-Z0-9_~+-]+|[a-zA-Z][a-zA-Z0-9_~+-]*'
@@ -360,736 +361,41 @@ class Kappa:
         return ex[:-2]
 
 
-def Canonical2Expression(canonical, views, nav=True, canon=True):
+def Canonical2Complex(canonical, views, nav=True, canon=True):
     """
     Wrapper for creating a Kappa molecule from a canonical form.
     """
     _kappa = Kappa()
-    k_expression = _kappa.decode(canonical, views)
-    expression = KappaExpression(agents=_kappa.parser(k_expression), nav=nav, canon=canon)
+    expression = _kappa.decode(canonical, views)
+    molecule = KappaMolecule(agents=_kappa.parser(expression), s_views={}, nav=nav, canon=canon)
     del _kappa
-    return expression
+    return molecule
 
 
-def Kappa2Expression(k_expression, id_shift=0, nav=True, canon=True):
-    """
-    Wrapper for creating an object from an expression.
-    """
-    # a shortcut for everyday applications
-    _kappa = Kappa()
-    expression = KappaExpression(agents=_kappa.parser(k_expression), id_shift=id_shift, nav=nav, canon=canon)
-    del _kappa
-    return expression
-
-
-def KappaComplex(k_expression, count=0, id_shift=0, system=None, signature=None, views=None, nav=True, canon=True):
+def KappaComplex(expression, count=0, id_shift=0, system=None, signature=None, views={}, nav=True, canon=True):
     """
     Wrapper for creating a Kappa molecule from an expression.
     """
     # a shortcut for everyday applications
     _kappa = Kappa()
-    molecule = KappaMolecule(agents=_kappa.parser(k_expression), count=count, id_shift=id_shift,
-                             system=system, sig=signature, s_views=views, nav=nav, canon=canon)
+    molecule = KappaMolecule(agents=_kappa.parser(expression),
+                             count=count,
+                             id_shift=id_shift,
+                             system=system,
+                             sig=signature,
+                             s_views=views,
+                             nav=nav,
+                             canon=canon)
     del _kappa
     return molecule
 
 
-class KappaExpression:
+class KappaMolecule:
     """
-    Constructs the internal representation of a kappa expression.
+    Constructs the internal representation of a kappa 'molecule'.
 
     This representation is built from a 'halfway-there' representation (the agent dictionary)
     provided by the Kappa parser or taken from another molecule.
-
-        self.agents[name] =
-           {
-            'iface': { site_name: {'state': state, 'bond': bond stub}
-            'info': {'id': local id, 'type': agent type, 'sID': SiteSim identifier, 'degree': int n}
-            'local_view': local_view
-            }
-        self.adjacency[name] = [ agent1, agent2, ... ]
-                self.bonds   = { ( (agent1, site1), (agent2, site2) ) }  # an 'indicator': d[tuple] = 1
-
-        * the interface dictionary of an agent is sorted by site name (needs Python 3.7+)
-        * agent names are unique, consisting of type + identifier, eg Axin.42. (including the last dot),
-          where the right and left separators (dots by default) are given by self.idsep.
-        * self.bonds is a list of unique tuples -- (agent1, site1), (agent2, site2) -- lexicographically
-          sorted on agent.
-        * bonds are stubs of the form name@site indicating the name of the agent and site
-          that anchors the other end of the bond.
-          A dictionary has no order by construction, but we can fake an order by iterating through it using
-          an ordered list of its keys, whenever order is desired (such as in re-assigning identifiers or
-          pretty printing)
-        * all types are string, except when otherwise noted.
-    """
-
-    def __init__(self, agents=None, id_shift=0, nav=False, canon=False, init=True):
-
-        # change these definitions only if you know what you are doing
-        self.bond_sep = '@'
-        self.id_sep = ('.', '.')  # not any of '(?:[_~][a-zA-Z0-9_~+-]+|[a-zA-Z][a-zA-Z0-9_~+-]*)'
-
-        # properties of the complex ---------------------------------------------------
-        self.size = 0
-        self.n_free_sites = 0
-        self.canonical = ''  # the canonicalized expression
-        self.composition = {}
-        self.sum_formula = ''
-        self.rarest_type = ''
-
-        # main data structures representing the complex; some redundancy here for convenience
-
-        # we get the 'agents' data structure from the parser
-        self.agents = agents
-
-        self.adjacency = {}
-        self.bonds = {}
-        self.type_slice = []
-        self.embedding_anchor = None
-        self.navigation = {}
-        # flags
-        self.nav = nav
-        self.canon = canon
-        self.is_pattern = False
-        # Local views for canonicalization
-        self.local_views = {}
-        self.local_view_index = {}
-
-        # auxiliary variables
-        self.label_counter = 0  # largest label
-        self.next = 0
-        self.id_shift = id_shift
-
-        if init:
-            self.initializeExpression(canon=self.canon, nav=self.nav)
-
-    def initializeExpression(self, canon=False, nav=False):
-        # size
-        self.size = len(self.agents)
-
-        # replace numeric labels of bonds by stubs
-        self.stubbify_bonds(id_shift=self.id_shift)
-
-        # max label when labeling is normalized
-        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
-        # get the composition
-        self.get_composition()
-        self.rarest_type = next(iter(self.composition))
-
-        if canon and not self.is_pattern:
-            self.make_adjacency_lists()
-            # requires adjacency list
-            self.get_local_views()
-            self.make_local_view_lists()
-            self.canonical = self.canonicalize()
-
-        if nav:
-            # Get the type lists for site graph matching. This is mostly for offline processing.
-            # In simulation, we don't match via graph traversal, but by computing a canonical form.
-            for at in self.composition:
-                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-            self.embedding_anchor = self.type_slice[0][0]
-            # construct adjacency lists
-            if not self.adjacency:
-                self.make_adjacency_lists()
-            # assemble the navigation list for embeddings
-            self.make_navigation_list()
-
-    def stubbify_bonds(self, id_shift=0, normalize=True):
-        """
-        Replaces bond labels with bond stubs.
-        """
-        self.n_free_sites = 0
-
-        if not normalize:
-            if id_shift == 0:
-                self.stubbify_bonds_no_shift()
-            else:
-                self.stubbify_bonds_with_shift(id_shift=id_shift)
-        else:
-            self.stubbify_bonds_with_shift(remap=self.normalize_ids(id_shift=id_shift))
-
-        # sort_site_and_bond_lists(self)
-
-    def stubbify_bonds_no_shift(self):
-        """
-        Replaces numeric bond labels with unique bond stubs.
-        For example, A.14.(b[2]), Z.3.(j[2]) becomes A.14.(b[Z.3.@j]), Z.3.(j[A.14.@b]).
-
-        generates:
-            self.bonds
-            self.bond_type
-            self.bond_type_list
-            self.free_site
-            self.free_site_list
-            self.agent_self_binding
-        """
-        # Note: If we are dealing with an object that contains a bond pattern, the degree of a node has no meaning.
-        self.bonds = {}
-        bonds = {}
-        stubs = []
-        for name in self.agents:
-            degree = 0
-            agent_free_site_types = set()
-            for site in self.agents[name]['iface']:
-                link = self.agents[name]['iface'][site]['bond']
-                if link != '.':
-                    if is_number(link):
-                        degree += 1
-                        if link in bonds:
-                            [(name1, site1)] = bonds[link]
-                            # stubbify
-                            self.agents[name1]['iface'][site1]['bond'] = ''.join([name, self.bond_sep, site])
-                            self.agents[name]['iface'][site]['bond'] = ''.join([name1, self.bond_sep, site1])
-                        else:
-                            bonds[link] = [(name, site)]
-                            continue
-                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
-                    elif self.bond_sep in link:
-                        degree += 1
-                        name1, site1 = link.split(self.bond_sep)
-                        complement = self.agents[name1]['iface'][site1]['bond']
-                        if complement not in stubs:
-                            stubs += [link]
-                            continue
-                    else:
-                        # bond state is a ghost, or '_', or '#'
-                        # degree = -1  # reset and flag, just in case
-                        self.is_pattern = True
-                        continue
-                    # This purpose of this section is to
-                    #  (1) identify the bonds and store them as keys in self.bonds
-                    #  (2) count the bond types (used to calculate reaction propensities).
-                    # Note: we can get here only from the case in which we have already seen the partner
-                    # of the bond of agent 'name' at site 'site'. That partner is 'name1' at site 'site1'.
-                    # We standardize the bond by sorting.
-                    b = sorted([(name1, site1), (name, site)], key=lambda x: (alphanum_key(x[0]), alphanum_key(x[1])))
-                    b = tuple(b)
-                    # collect unique bonds
-                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                else:
-                    self.n_free_sites += 1
-            self.agents[name]['info']['degree'] = degree
-
-    def stubbify_bonds_with_shift(self, id_shift=0, remap=None):
-        """
-        Replaces numeric bond labels with unique bond stubs much like stubbify_bonds_no_shift(),
-        but also executes a label remapping and label shift. Absent a remap and an id_shift,
-        it amounts to stubbify_bonds_no_shift(). However, since it creates a new agent dictionary,
-        it is preferable to use stubbify_bonds_no_shift() in that case, especially if
-        complexes are very large. (We could merge the two functions at the cost of a few conditionals.)
-
-        The label shift is needed when we connect molecules into a larger molecules.
-        The fusion requires shifting the agent identifiers of one of the molecules by the number
-        of agents contained in the other.
-        """
-        self.bonds = {}
-        bonds = {}
-        stubs = []
-        new_agents = {}
-        remapping = remap
-        if not remap:
-            # identity
-            remapping = [str(i + id_shift) for i in range(1, len(self.agents) + 1)]
-
-        for name in self.agents:
-            #
-            type1 = self.agents[name]['info']['type']
-            sID = self.agents[name]['info']['sID']
-            new_id = remapping[self.agents[name]['info']['id']]
-            # new_id = str(int(self.agents[name]['info']['id']) + id_shift)
-            new_name = add_identifier(self.agents[name]['info']['type'], new_id)
-            new_agents[new_name] = {}
-            new_agents[new_name]['iface'] = {}
-            new_agents[new_name]['info'] = {'id': new_id, 'type': type1, 'sID': sID, 'degree': 0}
-            new_agents[new_name]['local_view'] = self.agents[name]['local_view']  # shift-independent
-            degree = 0
-            agent_free_site_types = []
-            for site in self.agents[name]['iface']:
-                new_agents[new_name]['iface'][site] = {}
-                new_agents[new_name]['iface'][site]['state'] = self.agents[name]['iface'][site]['state']
-                # may be overwritten below
-                new_agents[new_name]['iface'][site]['bond'] = self.agents[name]['iface'][site]['bond']
-                link = self.agents[name]['iface'][site]['bond']
-                if link != '.':
-                    if is_number(link):
-                        degree += 1
-                        if link in bonds:
-                            (name1, site1) = bonds[link]
-                            # stubbify
-                            new_id1 = remapping[self.agents[name1]['info']['id']]
-                            # new_id1 = str(int(self.agents[name1]['info']['id']) + id_shift)
-                            new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
-                            new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
-                            new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
-                        else:
-                            bonds[link] = (name, site)
-                            continue
-                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
-                    elif self.bond_sep in link:
-                        degree += 1
-                        name1, site1 = link.split(self.bond_sep)
-                        complement = self.agents[name1]['iface'][site1]['bond']
-                        if complement in stubs:
-                            new_id1 = remapping[self.agents[name1]['info']['id']]
-                            # new_id1 = str(int(self.agents[name1]['info']['id']) + id_shift)
-                            new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
-                            new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
-                            new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
-                        else:
-                            stubs += [link]
-                            continue
-                    else:
-                        # bond state is a ghost, or '_', or '#'
-                        # degree = -1  # reset and flag, just in case
-                        self.is_pattern = True
-                        continue
-                    n1 = self.agents[name1]['info']['type']
-                    n = self.agents[name]['info']['type']
-                    (t1, l1, s1), (t2, l2, s2) = sorted([(n1, int(new_id1), site1), (n, int(new_id), site)])
-                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
-                    # collect unique bonds
-                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                    # count the bond *types* (to compute reactivity); here labels don't matter
-                else:
-                    self.n_free_sites += 1
-            new_agents[new_name]['info']['degree'] = degree
-        self.agents = new_agents
-
-    def get_local_views(self):
-        """
-        Obtain the lexically ordered local view at each agent.
-        """
-        # get the last used system-wide index of local views encountered thus far
-        if not self.local_view_index:
-            running_id = 0
-        else:
-            running_id = self.local_view_index[next(reversed(self.local_view_index))]
-
-        # get the "local views"
-        self.local_views = {}
-        for name in self.agents:
-            lv = []
-            iface = self.agents[name]['iface']
-            for s in iface:
-                view = ''
-                b = iface[s]['bond']
-                if b != '.' and b != '#':
-                    other_name, other_s = b.split(self.bond_sep)
-                    other_type = self.agents[other_name]['info']['type']
-                    view += f'[{other_type}.{other_s}]'
-                else:
-                    view += f'[{b}]'
-                # skip the state in this specific context
-                # view += '{' + f"{iface[s]['state']}" + '}'
-                lv.append((s, view))
-            local_view = ''
-            for site_view in [f"{s}{view} " for (s, view) in sorted(lv)]:
-                local_view += site_view
-            # this is the local view of agent 'name'
-            l_view = self.agents[name]['info']['type'] + '(' + local_view[:-1] + ')'
-
-            self.agents[name]['local_view'] = l_view
-
-            # update the system views
-            if l_view not in self.local_view_index:
-                running_id += 1
-                self.local_view_index[l_view] = running_id
-
-    def make_local_view_lists(self):
-        self.local_views = {}
-        for name in self.agents:
-            # make lists of agents with the same local view
-            lv = self.agents[name]['local_view']
-            if lv in self.local_views:
-                self.local_views[lv][name] = 1  # just an indicator dict for fast search and deletion
-            else:
-                self.local_views[lv] = {name: 1}
-
-    def canonicalize(self):
-        """
-        Canonicalize the kappa expression.
-        """
-        if not self.local_view_index:
-            return ''
-        # get the local view with the smallest index in the _system_ (!)
-        # we could also sort lexicographically; but this makes it compatible with
-        # subclassing in KappaMolecule.
-        _, mlv = min([(self.local_view_index[lv], lv) for lv in self.local_views])
-        # This is the list of local nodes with that view
-        node_list = list(self.local_views[mlv].keys())
-
-        canonic = []
-        for node in node_list:
-            canonic.append(self.traverse(node))
-        # return the lexicographically smallest
-        return min(canonic)
-
-    def traverse(self, node):
-        """
-        Makes a DFS traversal and identifies back edges, then constructs the canonical form as
-        a sequence of integers that are indices to the local views. Negative integers are back edges
-        to the position in the sequence (after adding 1 [used to avoid zero]). Assumes an undirected graph.
-        """
-        discovered = set()
-        spanning = set()
-        cycle_edges = defaultdict(int)
-        traversal = []
-        traversal_index = {}
-        idx = 0
-        parent = {node: node}
-        stack = deque()
-        stack.append((node, node))
-        while stack:
-            # pop the 'current' node and the node 'p' that preceded it when 'current' was placed on the stack
-            current, p = stack.pop()
-            if current not in discovered:
-                spanning.add(tuple(sorted((parent[current], current))))  # sort, since graph is undirected
-                # the list associated with 'current' is to later hold the back edges
-                traversal.append((current, []))  # the sequence is important, obviously
-                # we use a dictionary to store the positions in 'traversal' for fast retrieval below
-                traversal_index[current] = idx
-                idx += 1
-                discovered.add(current)  # for faster search (or else we could use 'traversal')
-                for neighbor in self.adjacency[current]:
-                    if neighbor not in discovered:
-                        parent[neighbor] = current
-                        stack.append((neighbor, current))
-            else:
-                e = tuple(sorted((p, current)))
-                # 'cycle_edges' is a counter. This handles multi-graphs, meaning graphs in which two nodes
-                # can have multiple edges between them.
-                cycle_edges[e] += 1
-        # --------------------------------------------------------------------------------
-        # insert the back edges
-        for e in cycle_edges:
-            for _ in range(cycle_edges[e]):
-                if traversal_index[e[0]] > traversal_index[e[1]]:
-                    # back edge to e[1]
-                    (current, back_list) = traversal[traversal_index[e[0]]]
-                    traversal[traversal_index[e[0]]] = (current, back_list + [e[1]])
-                else:
-                    # back edge to e[0]
-                    (current, back_list) = traversal[traversal_index[e[1]]]
-                    traversal[traversal_index[e[1]]] = (current, back_list + [e[0]])
-
-        # convert into a proper list and re-index
-        canonic = []
-        idx = 0
-        for (n, back_list) in traversal:
-            canonic.append(str(self.local_view_index[self.agents[n]['local_view']]))
-            traversal_index[n] = idx
-            idx += 1
-            if back_list:
-                for i in back_list:  # sorting is necessary to achieve a deterministic result
-                    # Make sure you get a negative number, i.e. not 0, as 0 might conflict with a
-                    # local-view index of 0... Although our indices start with 1 (and thus no conflict), we
-                    # subtract 1 to get a visual minus sign. Don't forget to +1 to get back the index...
-                    canonic.append(str(-traversal_index[i] - 1))
-
-        return '.'.join(canonic)
-
-    def make_adjacency_lists(self):
-        """
-        Construct adjacency lists for each agent
-        """
-        self.adjacency = {}
-        for name1 in self.agents:
-            iface = self.agents[name1]['iface']
-            adjacency = [iface[s1]['bond'].split(self.bond_sep)[0] for s1 in iface if iface[s1]['bond'] != '.']
-            self.adjacency[name1] = adjacency
-
-    def make_navigation_list(self):
-        # self.navigation[(a1, a2)] contains a site of a1 that anchors a bond to a2
-        # (For the purpose of this array, we don't care about multiple bonds between the same agents.)
-        # This is similar to self.bonds, but organized as a dictionary for convenience.
-        self.navigation = {}
-        for (a1, s1), (a2, s2) in self.bonds:  # names a1 and a2 in bonds have 'id' attached
-            self.navigation[(a1, a2)] = s1
-            self.navigation[(a2, a1)] = s2
-
-    def shift_ids(self, id_shift=0):
-        remapping = {}
-        for name in self.agents:
-            ident = self.agents[name]['info']['id']
-            remapping[ident] = str(int(ident) + id_shift)
-        return remapping
-
-    def normalize_ids(self, id_shift=0):
-        remapping = {}
-        i = 1
-        for name in self.agents:
-            remapping[self.agents[name]['info']['id']] = str(i + id_shift)
-            i += 1
-        return remapping
-
-    def randomize_ids(self):
-        l = [i for i in range(1, len(self.agents) + 1)]
-        random.shuffle(l)
-        # random.Random(42).shuffle(l)
-        remapping = {}
-        i = 0
-        for name in self.agents:
-            remapping[self.agents[name]['info']['id']] = str(l[i])
-            i += 1
-        return remapping
-
-    def remap_ids(self, remapping):
-        # wrapper to allow for subclass overriding
-        self._remap_ids(remapping)
-
-    def _remap_ids(self, remapping):
-        """
-        (Re)assigns agent labels (identifiers) using the map 'remapping'.
-        """
-        self.bonds = {}  # reset
-        # apply permutation
-        renamed = {}
-        for name1 in self.agents:
-            id1 = self.agents[name1]['info']['id']
-            type1 = self.agents[name1]['info']['type']
-            sID = self.agents[name1]['info']['sID']
-            new_id1 = remapping[id1]
-            new_name1 = add_identifier(type1, new_id1)
-            renamed[new_name1] = {}
-            renamed[new_name1]['iface'] = {}
-            renamed[new_name1]['info'] = {'id': new_id1, 'type': type1, 'sID': sID,
-                                          'degree': self.agents[name1]['info']['degree']}
-            renamed[new_name1]['local_view'] = ''
-            for site1 in self.agents[name1]['iface']:
-                renamed[new_name1]['iface'][site1] = {}
-                renamed[new_name1]['iface'][site1]['state'] = self.agents[name1]['iface'][site1]['state']
-                if self.bond_sep in self.agents[name1]['iface'][site1]['bond']:
-                    # agent2 is name.old_id
-                    agent2, site2 = self.agents[name1]['iface'][site1]['bond'].split(self.bond_sep)
-                    type2, id2 = get_identifier(agent2)
-                    new_id2 = remapping[id2]
-                    new_name2 = add_identifier(type2, new_id2)
-                    renamed[new_name1]['iface'][site1]['bond'] = new_name2 + self.bond_sep + site2
-                    # sort
-                    (t1, l1, s1), (t2, l2, s2) = sorted([(type1, int(new_id1), site1), (type2, int(new_id2), site2)])
-                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
-                    # collect unique bonds
-                    if b not in self.bonds:
-                        self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                else:
-                    renamed[new_name1]['iface'][site1]['bond'] = self.agents[name1]['iface'][site1]['bond']
-
-        self.agents = renamed
-
-    def remap(self, change='none', id_shift=0):
-        """
-        A wrapper for remap_ids() -- of use for external calls; not used in setting up the object.
-        'change' = {'none', 'normalize', 'randomize'} directs the construction of the remapping map.
-        Identifiers are shifted by 'id_shift'.
-        """
-        if change == 'normalize':
-            self.remap_ids(self.normalize_ids())
-        elif change == 'randomize':
-            self.remap_ids(self.randomize_ids())
-        else:  # check if shift
-            if id_shift > 0:
-                self.remap_ids(self.shift_ids(id_shift=id_shift))
-
-        # construct adjacency lists
-        self.make_adjacency_lists()
-
-        if self.nav:
-            # get the type lists for matching
-            self.type_slice = []
-            for at in self.composition:
-                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-            self.embedding_anchor = self.type_slice[0][0]
-            # assemble the navigation list for embeddings
-            self.make_navigation_list()
-
-        if self.canon:
-            self.get_local_views()
-            self.make_local_view_lists()
-            self.canonical = self.canonicalize()
-
-    def get_composition(self):
-        """
-        Get the 'sum formula' of a complex. Agents are ordered in increasing abundance within the complex.
-        """
-        comp = {}
-        for a in self.agents:
-            a_type = self.agents[a]['info']['type']
-            if a_type in comp:
-                comp[a_type] += 1
-            else:
-                comp[a_type] = 1
-
-        # sort the dict by value and then key:
-        self.composition = {k: v for k, v in sorted(comp.items(), key=lambda item: (item[1], item[0]))}
-
-        self.sum_formula = ''
-        for a_type in self.composition:
-            self.sum_formula += (a_type + '{' + str(self.composition[a_type]) + '}')
-
-    def is_multigraph(self):
-        """
-        Test if the set of bonds implies a multi-graph.
-        """
-        s = set()
-        for (a1, s1), (a2, s2) in self.bonds:
-            if (a1, a2) in s:
-                return True
-            else:
-                s.add((a1, a2))
-        return False
-
-    def nodes(self):
-        """
-        Emulates the networkx G.nodes() method returning a list of node names.
-        """
-        return [k for k in self.agents]
-
-    def order(self):
-        """
-        Works like __len__. For compatibility with networkx representation.
-        """
-        return self.size
-
-    def degree(self):
-        """
-        Emulates networkx G.degree(), returning a list of (node, degree) pairs
-        """
-        l = []
-        for name in self.agents:
-            if self.agents[name]['info']['degree'] == -1:
-                return []
-            l += [(name, self.agents[name]['info']['degree'])]
-        return l
-
-    def kappa_expression(self, label=False):
-        """
-        Converts the internal representation of a kapa molecule into a kappa string
-        """
-        # If we are dealing with an object that contains a bond pattern, the degree of a node has no meaning.
-        # The degree is used only for VF2 isomorphism checking, but not for pattern embeddings.
-        i = 1
-        num = {}
-        s = ''
-        for name in self.agents:
-            s += self.agents[name]["info"]["sID"]
-            if label:
-                s += f'{name}('
-            else:
-                s += f'{self.agents[name]["info"]["type"]}('
-            for site in self.agents[name]['iface']:
-                s += f'{site}'
-                state = self.agents[name]['iface'][site]['state']
-                if state != '#':
-                    s += '{' + f'{state}' + '}'
-                link = self.agents[name]['iface'][site]['bond']
-                if link == '.':
-                    s += '[.] '
-                elif link == '#':
-                    s += '[#] '
-                    # s += ''
-                elif self.bond_sep in link:
-                    ag, ste = link.split(self.bond_sep)
-                    if (name, site) in num:
-                        s += f'[{num[(name, site)]}] '
-                    else:
-                        num[(ag, ste)] = i
-                        s += f'[{i}] '
-                        i += 1
-                else:
-                    s += f'[{link}] '
-            if not self.agents[name]['iface']:
-                s = s + '), '
-            else:
-                s = s[:-1] + '), '
-        return s[:-2]
-
-    def summary(self, internal=False, show_bonds=False, reactivity=False, db_level=0, pp_width=40):
-        """
-        Prints summary of the molecule at various levels of detail.
-        """
-        info = '\n'
-        info += f"{''.ljust(70, '-')}\n"
-        info += f'{self.size} agents, {len(self.bonds)} bonds, and {self.n_free_sites} free sites\n'
-        info += f'composition: {self.sum_formula}\n'
-        if self.is_pattern:
-            info += f'expression is a pattern !\n'
-        info += self.show(internal=internal, wrap=200) + '\n'
-        info += f"{''.ljust(70, '-')}\n"
-        if show_bonds:
-            info += self.report_bonds(db_level=db_level, pp_width=3)
-        return info
-
-    def report_bonds(self, db_level=0, pp_width=40):
-        """
-        Prints the bond types and free site types of the molecule.
-        """
-        info = ''
-        if db_level == 2:
-            info += f"\n"
-            s = f'list of bonds (random order):'
-            info += f'{s:>{pp_width}}\n'
-            for (a1, s1), (a2, s2) in self.bonds:
-                b1 = ''.join([a1, s1])
-                b2 = ''.join([a2, s2])
-                info += f'{"":>{pp_width}} {b1}<->{b2}\n'
-        return info
-
-    def show(self, internal=False, label=False, wrap=-1):
-        """
-        Prints the internal representation.
-        If internal=False, print the standard kappa expression.
-        """
-        info = ''
-        if internal:
-            for name in self.agents:
-                interface = ''
-                iface = self.agents[name]['iface']
-                for s in iface:
-                    interface += s + '{' + iface[s]['state'] + '}' + '[' + iface[s]['bond'] + '] '
-                if not self.is_pattern:
-                    info += f"[d: {self.agents[name]['info']['degree']}] "
-                info += self.agents[name]['info']['sID'] + name + '(' + interface[:-1] + ')\n'
-            return info[:-1]
-        else:
-            if wrap > 0:
-                info = pprint.pformat(self.kappa_expression(label=label), indent=0, width=wrap, compact=False)
-                return info[1:-1].replace("'", "")
-            else:
-                return self.kappa_expression(label=label)
-
-    def __str__(self):
-        return self.kappa_expression()
-
-    def __iter__(self):
-        return iter(self.agents)
-
-    def __len__(self):
-        return self.size
-
-    def __getitem__(self, name):
-        """
-        Makes C[name] return the list of neighbors of node name; emulates the adjacency view of networkx
-        """
-        return self.adjacency[name]
-
-    def show_local_views(self):
-        local_view = {}
-        info = ''
-        for n in self.agents:
-            if self.agents[n]['local_view'] in local_view:
-                local_view[self.agents[n]['local_view']] += 1
-            else:
-                local_view[self.agents[n]['local_view']] = 1
-        for lv in local_view:
-            info += f"{local_view[lv]:3d}  {lv}\n"
-        return info
-
-
-class KappaMolecule(KappaExpression):
-    """
-    Constructs the internal representation of a KappaMolecule, which is a KappaExpression plus
-    content required in teh context of a Mixture
 
         self.agents[name] =
            {
@@ -1125,9 +431,17 @@ class KappaMolecule(KappaExpression):
                  canon=True,
                  init=True):
 
-        super().__init__(agents=agents, id_shift=id_shift, nav=nav, canon=canon, init=False)
+        # change these definitions only if you know what you are doing
+        self.bond_sep = '@'
+        self.id_sep = ('.', '.')  # not any of '(?:[_~][a-zA-Z0-9_~+-]+|[a-zA-Z][a-zA-Z0-9_~+-]*)'
 
+        # properties of the molecule ---------------------------------------------------
         self.count = count
+        self.size = 0
+        self.canonical = ''  # the canonicalized expression
+        self.composition = {}
+        self.sum_formula = ''
+        self.rarest_type = ''
 
         self.system = system
         self.signature = sig
@@ -1146,44 +460,88 @@ class KappaMolecule(KappaExpression):
         self.unbinding = {}  # propensity of internal bond dissociation; indexed by bond type
         self.binding = {}  # propensity of internal bond formation; indexed by bond type
 
-        self.has_local_views = has_views
-        # Local view indices of the mixture in the context of which molecules are canonicalized
-        # -> keep in mind that changes in self.local_view_index are implicitly returned via s_views
-        self.local_view_index = s_views
+        # main data structures representing the complex; some redundancy here for convenience
 
-        # override so we don't have to set sig and views
-        if self.system:
-            # signature is used for computing internal reaction propensities
+        # we get the 'agents' data structure from the parser
+        self.agents = agents
+
+        self.adjacency = {}
+        self.bonds = {}
+        self.type_slice = []
+        self.embedding_anchor = None
+        self.navigation = {}
+        # flags
+        self.nav = nav
+        self.canon = canon
+        self.has_local_views = has_views
+        self.is_pattern = False
+        # Local views of the mixture in the context of which expressions are canonicalized
+        self.system_views = s_views
+        self.local_views = {}
+
+        # auxiliary variables
+        self.label_counter = 0  # largest label
+        self.next = 0
+        self.id_shift = id_shift
+
+        if self.system:  # override so we don't have to set sig and views
+            # signature is only used for computing internal reaction propensities
             self.signature = self.system.signature
             self.canon = self.system.canonicalize
             self.nav = False
             if self.system.mixture:
-                self.local_view_index = self.system.mixture.local_views
+                self.system_views = self.system.mixture.local_views
 
         # if data are empty, this generates an empty KappaMolecule
         if not self.agents:
             return
 
         if init:
-            self.initializeExpression(canon=False, nav=self.nav)
-            self.initializeMolecule()
+            self.initialize()
 
-    def initializeMolecule(self):
+    def initialize(self):
+        # size
+        self.size = len(self.agents)
+
+        # replace numeric labels of bonds by stubs
+        self.stubbify_bonds(id_shift=self.id_shift)
+
+        # max label when labeling is normalized
+        self.label_counter = int(get_identifier(next(reversed(self.agents)), delimiters=self.id_sep)[1])
+        # get the composition
+        self.get_composition()
+        self.rarest_type = next(iter(self.composition))
+
+        canonicalize = False
         if self.system:
-            if self.size >= self.system.size_threshold:
-                # self.canon = False
+            if self.size < self.system.size_threshold and self.canon:
+                canonicalize = True
+            else:
                 self.make_adjacency_lists()
                 self.canonical = self.system.served_name
                 self.system.served_name += 1
+        else:
+            canonicalize = self.canon
 
-        if self.canon and not self.is_pattern:
-            if not self.adjacency:
-                self.make_adjacency_lists()
+        if canonicalize:
+            self.make_adjacency_lists()
             # requires adjacency list
             if not self.has_local_views:
                 self.get_local_views()
             self.make_local_view_lists()
             self.canonical = self.canonicalize()
+
+        if self.nav:
+            # Get the type lists for site graph matching. This is mostly for offline processing.
+            # In simulation, we don't match via graph traversal, but by computing a canonical form.
+            for at in self.composition:
+                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
+            self.embedding_anchor = self.type_slice[0][0]
+            # construct adjacency lists
+            if not self.adjacency:
+                self.make_adjacency_lists()
+            # assemble the navigation list for embeddings
+            self.make_navigation_list()
 
         # calculate reaction propensities
         if self.signature:
@@ -1447,14 +805,224 @@ class KappaMolecule(KappaExpression):
                             self.agent_self_binding[bt] += 1
 
             new_agents[new_name]['info']['degree'] = degree
+
         self.agents = new_agents
+
+    def get_local_views(self):
+        """
+        Obtain the lexically ordered local view at each agent.
+        """
+        # get the last used system-wide index of local views encountered thus far
+        if not self.system_views:
+            running_id = 0
+        else:
+            running_id = self.system_views[next(reversed(self.system_views))]
+
+        # get the "local views"
+        self.local_views = {}
+        for name in self.agents:
+            lv = []
+            iface = self.agents[name]['iface']
+            for s in iface:
+                view = ''
+                b = iface[s]['bond']
+                if b != '.' and b != '#':
+                    other_name, other_s = b.split(self.bond_sep)
+                    other_type = self.agents[other_name]['info']['type']
+                    view += f'[{other_type}.{other_s}]'
+                else:
+                    view += f'[{b}]'
+                # skip the state in this specific context
+                # view += '{' + f"{iface[s]['state']}" + '}'
+                lv.append((s, view))
+            local_view = ''
+            for site_view in [f"{s}{view} " for (s, view) in sorted(lv)]:
+                local_view += site_view
+            # this is the local view of agent 'name'
+            l_view = self.agents[name]['info']['type'] + '(' + local_view[:-1] + ')'
+
+            self.agents[name]['local_view'] = l_view
+
+            # update the system views
+            if l_view not in self.system_views:
+                running_id += 1
+                self.system_views[l_view] = running_id
+
+    def make_local_view_lists(self):
+        self.local_views = {}
+        for name in self.agents:
+            # make lists of agents with the same local view
+            lv = self.agents[name]['local_view']
+            if lv in self.local_views:
+                self.local_views[lv][name] = 1  # just an indicator dict for fast search and deletion
+            else:
+                self.local_views[lv] = {name: 1}
+
+    def canonicalize(self):
+        """
+        Canonicalize the kappa expression.
+        """
+        if not self.system_views:
+            return ''
+        # get the local view with the smallest index in the _system_ (!)
+        _, mlv = min([(self.system_views[lv], lv) for lv in self.local_views])
+        # This is the list of local nodes with that view
+        node_list = list(self.local_views[mlv].keys())
+
+        canonic = []
+        for node in node_list:
+            canonic.append(self.traverse(node))
+        # return the lexicographically smallest
+        return min(canonic)
+
+    def traverse(self, node):
+        """
+        Makes a DFS traversal and identifies back edges, then constructs the canonical form as
+        a sequence of integers that are indices to the local views. Negative integers are back edges
+        to the position in the sequence (after adding 1 [used to avoid zero]). Assumes an undirected graph.
+        """
+        discovered = set()
+        spanning = set()
+        cycle_edges = defaultdict(int)
+        traversal = []
+        traversal_index = {}
+        idx = 0
+        parent = {node: node}
+        stack = deque()
+        stack.append((node, node))
+        while stack:
+            # pop the 'current' node and the node 'p' that preceded it when 'current' was placed on the stack
+            current, p = stack.pop()
+            if current not in discovered:
+                spanning.add(tuple(sorted((parent[current], current))))  # sort, since graph is undirected
+                # the list associated with 'current' is to later hold the back edges
+                traversal.append((current, []))  # the sequence is important, obviously
+                # we use a dictionary to store the positions in 'traversal' for fast retrieval below
+                traversal_index[current] = idx
+                idx += 1
+                discovered.add(current)  # for faster search (or else we could use 'traversal')
+                for neighbor in self.adjacency[current]:
+                    if neighbor not in discovered:
+                        parent[neighbor] = current
+                        stack.append((neighbor, current))
+            else:
+                e = tuple(sorted((p, current)))
+                # 'cycle_edges' is a counter. This handles multi-graphs, meaning graphs in which two nodes
+                # can have multiple edges between them.
+                cycle_edges[e] += 1
+        # --------------------------------------------------------------------------------
+        # insert the back edges
+        for e in cycle_edges:
+            for _ in range(cycle_edges[e]):
+                if traversal_index[e[0]] > traversal_index[e[1]]:
+                    # back edge to e[1]
+                    (current, back_list) = traversal[traversal_index[e[0]]]
+                    traversal[traversal_index[e[0]]] = (current, back_list + [e[1]])
+                else:
+                    # back edge to e[0]
+                    (current, back_list) = traversal[traversal_index[e[1]]]
+                    traversal[traversal_index[e[1]]] = (current, back_list + [e[0]])
+
+        # convert into a proper list and re-index
+        canonic = []
+        idx = 0
+        for (n, back_list) in traversal:
+            canonic.append(str(self.system_views[self.agents[n]['local_view']]))
+            traversal_index[n] = idx
+            idx += 1
+            if back_list:
+                for i in back_list:  # sorting is necessary to achieve a deterministic result
+                    # Make sure you get a negative number, i.e. not 0, as 0 might conflict with a
+                    # local-view index of 0... Although our indices start with 1 (and thus no conflict), we
+                    # subtract 1 to get a visual minus sign. Don't forget to +1 to get back the index...
+                    canonic.append(str(-traversal_index[i] - 1))
+
+        return '.'.join(canonic)
+
+    def make_adjacency_lists(self):
+        """
+        Construct adjacency lists for each agent
+        """
+        self.adjacency = {}
+        for name1 in self.agents:
+            iface = self.agents[name1]['iface']
+            adjacency = [iface[s1]['bond'].split(self.bond_sep)[0] for s1 in iface if iface[s1]['bond'] != '.']
+            self.adjacency[name1] = adjacency
+
+    def make_navigation_list(self):
+        # self.navigation[(a1, a2)] contains a site of a1 that anchors a bond to a2
+        # (For the purpose of this array, we don't care about multiple bonds between the same agents.)
+        # This is similar to self.bonds, but organized as a dictionary for convenience.
+        self.navigation = {}
+        for (a1, s1), (a2, s2) in self.bonds:  # names a1 and a2 in bonds have 'id' attached
+            self.navigation[(a1, a2)] = s1
+            self.navigation[(a2, a1)] = s2
+
+    def shift_ids(self, id_shift=0):
+        remapping = {}
+        for name in self.agents:
+            ident = self.agents[name]['info']['id']
+            remapping[ident] = str(int(ident) + id_shift)
+        return remapping
+
+    def normalize_ids(self, id_shift=0):
+        remapping = {}
+        i = 1
+        for name in self.agents:
+            remapping[self.agents[name]['info']['id']] = str(i + id_shift)
+            i += 1
+        return remapping
+
+    def randomize_ids(self):
+        l = [i for i in range(1, len(self.agents) + 1)]
+        random.shuffle(l)
+        # random.Random(42).shuffle(l)
+        remapping = {}
+        i = 0
+        for name in self.agents:
+            remapping[self.agents[name]['info']['id']] = str(l[i])
+            i += 1
+        return remapping
 
     def remap_ids(self, remapping):
         """
         (Re)assigns agent labels (identifiers) using the map 'remapping'.
-        Overrides parent class method
         """
-        self._remap_ids(remapping)
+        self.bonds = {}  # reset
+
+        # apply permutation
+        renamed = {}
+        for name1 in self.agents:
+            id1 = self.agents[name1]['info']['id']
+            type1 = self.agents[name1]['info']['type']
+            sID = self.agents[name1]['info']['sID']
+            new_id1 = remapping[id1]
+            new_name1 = add_identifier(type1, new_id1)
+            renamed[new_name1] = {}
+            renamed[new_name1]['iface'] = {}
+            renamed[new_name1]['info'] = {'id': new_id1, 'type': type1, 'sID': sID,
+                                          'degree': self.agents[name1]['info']['degree']}
+            renamed[new_name1]['local_view'] = ''
+            for site1 in self.agents[name1]['iface']:
+                renamed[new_name1]['iface'][site1] = {}
+                renamed[new_name1]['iface'][site1]['state'] = self.agents[name1]['iface'][site1]['state']
+                if self.bond_sep in self.agents[name1]['iface'][site1]['bond']:
+                    # agent2 is name.old_id
+                    agent2, site2 = self.agents[name1]['iface'][site1]['bond'].split(self.bond_sep)
+                    type2, id2 = get_identifier(agent2)
+                    new_id2 = remapping[id2]
+                    new_name2 = add_identifier(type2, new_id2)
+                    renamed[new_name1]['iface'][site1]['bond'] = new_name2 + self.bond_sep + site2
+                    # sort
+                    (t1, l1, s1), (t2, l2, s2) = sorted([(type1, int(new_id1), site1), (type2, int(new_id2), site2)])
+                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
+                    # collect unique bonds
+                    if b not in self.bonds:
+                        self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
+                else:
+                    renamed[new_name1]['iface'][site1]['bond'] = self.agents[name1]['iface'][site1]['bond']
+
+        self.agents = renamed
 
         if self.signature:
             new_bond_list = {}
@@ -1493,6 +1061,133 @@ class KappaMolecule(KappaExpression):
                 new_free_site_list_idx[st] = new_list_idx
             self.free_site_list = new_free_site_list
             self.free_site_list_idx = new_free_site_list_idx
+
+    def remap(self, change='none', id_shift=0):
+        """
+        A wrapper for remap_ids() -- of use for external calls; not used in setting up the object.
+        'change' = {'none', 'normalize', 'randomize'} directs the construction of the remapping map.
+        Identifiers are shifted by 'id_shift'.
+        """
+        if change == 'normalize':
+            self.remap_ids(self.normalize_ids())
+        elif change == 'randomize':
+            self.remap_ids(self.randomize_ids())
+        else:  # check if shift
+            if id_shift > 0:
+                self.remap_ids(self.shift_ids(id_shift=id_shift))
+
+        # construct adjacency lists
+        self.make_adjacency_lists()
+
+        if self.nav:
+            # get the type lists for matching
+            self.type_slice = []
+            for at in self.composition:
+                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
+            self.embedding_anchor = self.type_slice[0][0]
+            # assemble the navigation list for embeddings
+            self.make_navigation_list()
+
+        if self.canon:
+            self.get_local_views()
+            self.make_local_view_lists()
+            self.canonical = self.canonicalize()
+
+    def get_composition(self):
+        """
+        Get the 'sum formula' of a complex. Agents are ordered in increasing abundance within the complex.
+        """
+        comp = {}
+        for a in self.agents:
+            a_type = self.agents[a]['info']['type']
+            if a_type in comp:
+                comp[a_type] += 1
+            else:
+                comp[a_type] = 1
+
+        # sort the dict by value and then key:
+        self.composition = {k: v for k, v in sorted(comp.items(), key=lambda item: (item[1], item[0]))}
+
+        self.sum_formula = ''
+        for a_type in self.composition:
+            self.sum_formula += (a_type + '{' + str(self.composition[a_type]) + '}')
+
+    def is_multigraph(self):
+        """
+        Test if the set of bonds implies a multi-graph.
+        """
+        s = set()
+        for (a1, s1), (a2, s2) in self.bonds:
+            if (a1, a2) in s:
+                return True
+            else:
+                s.add((a1, a2))
+        return False
+
+    def nodes(self):
+        """
+        Emulates the networkx G.nodes() method returning a list of node names.
+        """
+        return [k for k in self.agents]
+
+    def order(self):
+        """
+        Works like __len__. For compatibility with networkx representation.
+        """
+        return self.size
+
+    def degree(self):
+        """
+        Emulates networkx G.degree(), returning a list of (node, degree) pairs
+        """
+        l = []
+        for name in self.agents:
+            if self.agents[name]['info']['degree'] == -1:
+                return []
+            l += [(name, self.agents[name]['info']['degree'])]
+        return l
+
+    def kappa_expression(self, label=False):
+        """
+        Converts the internal representation of a kapa molecule into a kappa string
+        """
+        # If we are dealing with an object that contains a bond pattern, the degree of a node has no meaning.
+        # The degree is used only for VF2 isomorphism checking, but not for pattern embeddings.
+        i = 1
+        num = {}
+        s = ''
+        for name in self.agents:
+            s += self.agents[name]["info"]["sID"]
+            if label:
+                s += f'{name}('
+            else:
+                s += f'{self.agents[name]["info"]["type"]}('
+            for site in self.agents[name]['iface']:
+                s += f'{site}'
+                state = self.agents[name]['iface'][site]['state']
+                if state != '#':
+                    s += '{' + f'{state}' + '}'
+                link = self.agents[name]['iface'][site]['bond']
+                if link == '.':
+                    s += '[.] '
+                elif link == '#':
+                    s += '[#] '
+                    # s += ''
+                elif self.bond_sep in link:
+                    ag, ste = link.split(self.bond_sep)
+                    if (name, site) in num:
+                        s += f'[{num[(name, site)]}] '
+                    else:
+                        num[(ag, ste)] = i
+                        s += f'[{i}] '
+                        i += 1
+                else:
+                    s += f'[{link}] '
+            if not self.agents[name]['iface']:
+                s = s + '), '
+            else:
+                s = s[:-1] + '), '
+        return s[:-2]
 
     def summary(self, internal=False, show_bonds=False, reactivity=False, db_level=0, pp_width=40):
         """
@@ -1582,6 +1277,57 @@ class KappaMolecule(KappaExpression):
 
         return info
 
+    def show(self, internal=False, label=False, wrap=-1):
+        """
+        Prints the internal representation.
+        If internal=False, print the standard kappa expression.
+        """
+        info = ''
+        if internal:
+            for name in self.agents:
+                interface = ''
+                iface = self.agents[name]['iface']
+                for s in iface:
+                    interface += s + '{' + iface[s]['state'] + '}' + '[' + iface[s]['bond'] + '] '
+                if not self.is_pattern:
+                    info += f"[d: {self.agents[name]['info']['degree']}] "
+                info += self.agents[name]['info']['sID'] + name + '(' + interface[:-1] + ')\n'
+            return info[:-1]
+        else:
+            if wrap > 0:
+                info = pprint.pformat(self.kappa_expression(label=label), indent=0, width=wrap, compact=False)
+                return info[1:-1].replace("'", "")
+            else:
+                return self.kappa_expression(label=label)
+
+    def __str__(self):
+        return self.kappa_expression()
+
+    def __iter__(self):
+        return iter(self.agents)
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, name):
+        """
+        Makes C[name] return the list of neighbors of node name; emulates the adjacency view of networkx
+        """
+        return self.adjacency[name]
+
+    def show_local_views(self):
+        local_view = {}
+        info = ''
+        for n in self.agents:
+            if self.agents[n]['local_view'] in local_view:
+                local_view[self.agents[n]['local_view']] += 1
+            else:
+                local_view[self.agents[n]['local_view']] = 1
+        for lv in local_view:
+            info += f"{local_view[lv]:3d}  {lv}\n"
+        return info
+
+
 # -------------------------------------------------------------------------------------------
 
 
@@ -1591,14 +1337,14 @@ if __name__ == '__main__':
 
     # parser
     kappa = Kappa()
-    # a simple Kappa string
-    s1 = ' A(o[1], p[2] t{p}[3]), B(x[1] y[2] z[.]), C(w[3], y[z.B])'
-    agents = kappa.parser(s1)
-    c = KappaExpression(agents)
-    out = c.kappa_expression()
-    print(f"expression:\n{out}")
-    out = c.show(internal=True)
-    print(f"internal representation:\n{out}")
+    # # a simple Kappa string
+    # s1 = ' A(o[1], p[2] t{p}[3]), B(x[1] y[2] z[.]), C(w[3], y[z.B])'
+    # agents = kappa.parser(s1)
+    # c = KappaMolecule(agents, count=175)
+    # out = c.kappa_expression()
+    # print(f"expression:\n{out}")
+    # out = c.show(internal=True)
+    # print(f"internal representation:\n{out}")
 
     print("--------------")
 
@@ -1656,9 +1402,6 @@ if __name__ == '__main__':
     x1 = KappaComplex(data)
     print(x1.kappa_expression())
     print(x1.canonical)
-    out = kappa.decode(x1.canonical, x1.local_view_index)
+    out = kappa.decode(x1.canonical, x1.system_views)
     print(out)
     print(f'decoded is isomorphic to original: {SGM.isomorphic(KappaComplex(out), x1)}')
-    expression = Canonical2Expression(x1.canonical, x1.local_view_index)
-    print(expression)
-    print(f'decoded is isomorphic to original: {SGM.isomorphic(expression, x1)}')
