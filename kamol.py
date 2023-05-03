@@ -157,6 +157,7 @@ class Kappa:
 
     This is usually passed to KappaMolecule to generate the internal representation used in this package.
     """
+
     def __init__(self):
         # change these definitions only if you know what you are doing
         self.symbols = r'[_~][a-zA-Z0-9_~+-]+|[a-zA-Z][a-zA-Z0-9_~+-]*'
@@ -382,7 +383,7 @@ def Kappa2Expression(k_expression, id_shift=0, nav=True, canon=True):
     return expression
 
 
-def KappaComplex(k_expression, count=0, id_shift=0, system=None, signature=None, views=None, nav=True, canon=True):
+def KappaComplex(k_expression, count=0, id_shift=0, system=None, signature=None, views={}, nav=True, canon=True):
     """
     Wrapper for creating a Kappa molecule from an expression.
     """
@@ -1581,6 +1582,7 @@ class KappaMolecule(KappaExpression):
             info = f'\n{"Warning: no signature":>30}'
 
         return info
+
 
 # -------------------------------------------------------------------------------------------
 
