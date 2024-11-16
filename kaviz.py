@@ -438,7 +438,7 @@ if __name__ == '__main__':
     print(c1)
     print(c1.canonical)
 
-    c2 = kamol.Canonical2Expression(c1.canonical, c1.system_views)
+    c2 = kamol.Canonical2Expression(c1.canonical, c1.local_view_index)
     r2 = Renderer(c2)
     r2.render(labels='no', node_size=20, font_size=9, line_width=1, edge_color='gray')
 

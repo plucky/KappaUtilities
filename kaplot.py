@@ -16,11 +16,13 @@ def show(pdf=''):
         plt.savefig(pdf)
 
 
-class XY_plot:
-    def __init__(self, figsize=(10,8), params={}):
+class XYplot:
+    def __init__(self, figsize=(10,8), params=None):
         """
         params: parameter dict to be passed to plot
         """
+        if not params:
+            params = {}
         self.default_x = 0
         self.default_y = 1
         self.x_axis = None
@@ -39,7 +41,7 @@ class XY_plot:
         self.fig, self.ax = plt.subplots(figsize=figsize)
         self.overlay_axis = None
 
-    def add(self, df, x='', y='', title='', xmajor=0, ymajor=0, params={}):
+    def add(self, df, x='', y='', title='', xmajor=0, ymajor=0, params=None):
         """
         ymajor: multiple for major y-tick marks (0 for auto)
         xmajor: multiple for major x-tick marks (0 for auto)
@@ -49,6 +51,8 @@ class XY_plot:
         y: name of x column
         x: name of y column
         """
+        if not params:
+            params = {}
         self.parameters = {**self.parameters, **params}
         self.ncurve += 1
         self.parameters['label'] = self.parameters['label'] + f' [{self.ncurve}]'
@@ -69,7 +73,7 @@ class XY_plot:
         else:
             self.title = title
 
-        arts, = self.ax.plot(df[x], df[y], 'o-', **self.parameters)
+        arts, = self.ax.plot(df[x], df[y], **self.parameters)
         self.artists[self.ncurve] = arts
 
         if xmajor != 0:
@@ -137,7 +141,7 @@ if __name__ == '__main__':
 
     snap1 = ks.SnapShot('TestData/snap19.ka')
     sd_df1 = pd.DataFrame(snap1.get_size_distribution(dictionary=True))
-    plot = XY_plot(params={'linestyle': '-', 'linewidth': 1., 'markersize': 0})
+    plot = XYplot(params={'linestyle': '-', 'linewidth': 1., 'markersize': 0})
     plot.add(sd_df1, xmajor=2, ymajor=2000, params={'label': 'snap19', 'color': 'r', 'markerfacecolor': 'r'})
     # show()
     snap2 = ks.SnapShot('TestData/snap98.ka')
