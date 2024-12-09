@@ -1090,7 +1090,7 @@ class KappaExpression:
 class KappaMolecule(KappaExpression):
     """
     Constructs the internal representation of a KappaMolecule, which is a KappaExpression plus
-    content required in teh context of a Mixture
+    content required in the context of a Mixture
 
         self.agents[name] =
            {

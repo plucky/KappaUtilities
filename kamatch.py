@@ -209,7 +209,7 @@ class SiteGraphMatcher:
     #         last_p_node = list(self.stack)[-1]  # peek
     #         site = self.pattern.navigation[(last_p_node, p_node)]
     #         # the agent that is bound on that site but in the host graph
-    #         h_node = self.host.agents[h_node]['iface'][site]['bond'].split(self.pattern.bondsep)[0]
+    #         h_node = self.host.agents[h_node]['iface'][site]['bond'].split(self.pattern.bond_sep)[0]
     #     if not self.node_match(h_node, p_node):
     #         raise Fail
     #     else:
@@ -222,8 +222,10 @@ class SiteGraphMatcher:
     #                 self.traverse_with_recursion(neighbor, h_node)
     #         self.stack.pop()
 
-    def node_match(self, host, pattern, h_node, p_node):
-        # here, the prefix 'h' stands for 'host' and 'p' for 'pattern'
+    def node_match_bonds_only(self, host, pattern, h_node, p_node):
+        # no state comparison for binding-only models !
+        #
+        # the prefix 'h' stands for 'host' and 'p' for 'pattern'
         # start with type match
         h_node_type = host.agents[h_node]['info']['type']
         p_node_type = pattern.agents[p_node]['info']['type']
@@ -237,10 +239,6 @@ class SiteGraphMatcher:
             if site_name not in h_node_iface:
                 return False
             else:
-                # no state comparison for binding-only models
-                # if p_node_iface[site_name]['state'] != '#':
-                #     if p_node_iface[site_name]['state'] != h_node_iface[site_name]['state']:
-                #         return False
                 h_bond = h_node_iface[site_name]['bond']
                 p_bond = p_node_iface[site_name]['bond']
 
@@ -267,63 +265,63 @@ class SiteGraphMatcher:
         return True
 
     # general version
-    # def node_match(self, host, pattern, h_node, p_node):
-    #     # here, the prefix 'h' stands for 'host' and 'p' for 'pattern'
-    #     # start with type match
-    #     h_node_type = host.agents[h_node]['info']['type']
-    #     p_node_type = pattern.agents[p_node]['info']['type']
-    #     if h_node_type != p_node_type:
-    #         return False
-    #
-    #     h_node_iface = host.agents[h_node]['iface']
-    #     p_node_iface = pattern.agents[p_node]['iface']
-    #
-    #     for site_name in p_node_iface:
-    #         if site_name not in h_node_iface:
-    #             return False
-    #         else:
-    #             if p_node_iface[site_name]['state'] != '#':
-    #                 if p_node_iface[site_name]['state'] != h_node_iface[site_name]['state']:
-    #                     return False
-    #
-    #             h_bond = h_node_iface[site_name]['bond']
-    #             p_bond = p_node_iface[site_name]['bond']
-    #             if '@' in h_bond:
-    #                 h_partner, x, h_site = h_bond.partition(host.bondsep)
-    #             if '@' in p_bond:
-    #                 p_partner, x, p_site = p_bond.partition(pattern.bondsep)
-    #
-    #             if p_bond == '.':
-    #                 if h_bond != '.':
-    #                     if not self.sub:
-    #                         return False
-    #             elif '@' in p_bond:  # specific bond
-    #                 if not ('@' in h_bond):
-    #                     return False
-    #                 else:
-    #                     # both sites are bound
-    #                     if p_partner in self.mapping:
-    #                         if not (self.mapping[p_partner] == h_partner):
-    #                             return False
-    #                     if h_site != p_site:
-    #                         return False
-    #             elif p_bond == '_':  # unspecific bond
-    #                 if h_bond == '.':
-    #                     return False
-    #             elif '.' in p_bond:  # stub ('.', as in free, is caught above)
-    #                 if h_bond == '.':  # the site is free
-    #                     return False
-    #                 elif h_bond == '_':
-    #                     return False  # is this True ?? (ask Pierre)
-    #                 elif '@' in h_bond:
-    #                     ghost_site, ghost_type = p_bond.split('.')
-    #                     h_type = h_partner.split('.')[0]
-    #                     if ghost_type != h_type or ghost_site != h_site:
-    #                         return False
-    #                 elif '.' in h_bond:  # h_bond is also a stub
-    #                     if p_bond != h_bond:
-    #                         return False
-    #     return True
+    def node_match(self, host, pattern, h_node, p_node):
+        # here, the prefix 'h' stands for 'host' and 'p' for 'pattern'
+        # start with type match
+        h_node_type = host.agents[h_node]['info']['type']
+        p_node_type = pattern.agents[p_node]['info']['type']
+        if h_node_type != p_node_type:
+            return False
+
+        h_node_iface = host.agents[h_node]['iface']
+        p_node_iface = pattern.agents[p_node]['iface']
+
+        for site_name in p_node_iface:
+            if site_name not in h_node_iface:
+                return False
+            else:
+                if p_node_iface[site_name]['state'] != '#':
+                    if p_node_iface[site_name]['state'] != h_node_iface[site_name]['state']:
+                        return False
+
+                h_bond = h_node_iface[site_name]['bond']
+                p_bond = p_node_iface[site_name]['bond']
+                if '@' in h_bond:
+                    h_partner, x, h_site = h_bond.partition(host.bond_sep)
+                if '@' in p_bond:
+                    p_partner, x, p_site = p_bond.partition(pattern.bond_sep)
+
+                if p_bond == '.':
+                    if h_bond != '.':
+                        if not self.sub:
+                            return False
+                elif '@' in p_bond:  # specific bond
+                    if not ('@' in h_bond):
+                        return False
+                    else:
+                        # both sites are bound
+                        if p_partner in self.mapping:
+                            if not (self.mapping[p_partner] == h_partner):
+                                return False
+                        if h_site != p_site:
+                            return False
+                elif p_bond == '_':  # unspecific bond
+                    if h_bond == '.':
+                        return False
+                elif '.' in p_bond:  # stub ('.', as in free, is caught above)
+                    if h_bond == '.':  # the site is free
+                        return False
+                    elif h_bond == '_':
+                        return False  # the pattern state is more specific (stub) than the host state
+                    elif '@' in h_bond:
+                        ghost_site, ghost_type = p_bond.split('.')
+                        h_type = h_partner.split('.')[0]
+                        if ghost_type != h_type or ghost_site != h_site:
+                            return False
+                    elif '.' in h_bond:  # h_bond is also a stub
+                        if p_bond != h_bond:
+                            return False
+        return True
 
 # -------------------------------------------------------------------------------------------
 
