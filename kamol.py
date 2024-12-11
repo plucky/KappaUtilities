@@ -797,7 +797,8 @@ class KappaExpression:
         self.adjacency = {}
         for name1 in self.agents:
             iface = self.agents[name1]['iface']
-            adjacency = [iface[s1]['bond'].split(self.bond_sep)[0] for s1 in iface if iface[s1]['bond'] != '.']
+            adjacency = [iface[s1]['bond'].split(self.bond_sep)[0] for s1 in iface if iface[s1]['bond']
+                         not in {'.', '#', '_'}]
             self.adjacency[name1] = adjacency
 
     def make_navigation_list(self):
