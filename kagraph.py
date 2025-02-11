@@ -29,9 +29,9 @@ class KappaGraph:
 
         # set node attributes
         node_attributes = {}
-        for node, node_data in self.nxGraph.nodes.items():
+        for node, _ in self.nxGraph.nodes.items():
             name, id = kamol.get_identifier(node)
-            node_attributes[node] = {'type': name, 'id': id}
+            node_attributes[node] = {'type': name, 'id': id, 'iface': f"{komplex.agents[node]['iface']}"}
         nx.set_node_attributes(self.nxGraph, node_attributes)
 
     def get_cycle(self):

@@ -13,7 +13,7 @@ def show(pdf=''):
     if pdf == '':
         plt.show(block=False)
     else:
-        plt.savefig(pdf)
+        plt.savefig(pdf, bbox_inches='tight')
 
 
 class XYplot:

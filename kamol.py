@@ -372,7 +372,7 @@ def Canonical2Expression(canonical, views, nav=True, canon=True):
     return expression
 
 
-def Kappa2Expression(k_expression, id_shift=0, nav=True, canon=True):
+def Kappa2Expression(k_expression, id_shift=0, nav=True, canon=False):
     """
     Wrapper for creating an object from an expression.
     """
