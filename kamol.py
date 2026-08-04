@@ -359,21 +359,21 @@ class Kappa:
         return ex[:-2]
 
 
-def canonical_to_expression(canonical, local_view_index, nav=True, canon=True):
+def canonical_to_representation(canonical, local_view_index, nav=True, canon=True):
     """
     Wrapper for creating a KappaExpression from a canonical form.
     """
     parser = Kappa()
     k_expression = parser.decode(canonical, local_view_index)
-    return KappaExpression(agents=parser.parse(k_expression), nav=nav, canon=canon)
+    return KappaRepresentation(agents=parser.parse(k_expression), nav=nav, canon=canon)
 
 
-def kappa_to_expression(k_expression, id_shift=0, nav=True, canon=False):
+def kappa_to_representation(k_expression, id_shift=0, nav=True, canon=False):
     """
     Wrapper for creating a KappaExpression from a kappa string. A shortcut for everyday applications.
     """
     parser = Kappa()
-    return KappaExpression(agents=parser.parse(k_expression), id_shift=id_shift, nav=nav, canon=canon)
+    return KappaRepresentation(agents=parser.parse(k_expression), id_shift=id_shift, nav=nav, canon=canon)
 
 
 def kappa_to_molecule(k_expression, count=0, id_shift=0, system=None, signature=None, local_view_index=None,
@@ -387,7 +387,7 @@ def kappa_to_molecule(k_expression, count=0, id_shift=0, system=None, signature=
                           nav=nav, canon=canon)
 
 
-class KappaExpression:
+class KappaRepresentation:
     """
     Constructs the internal representation of a kappa expression.
 
@@ -1068,7 +1068,7 @@ class KappaExpression:
         return info
 
 
-class KappaMolecule(KappaExpression):
+class KappaMolecule(KappaRepresentation):
     """
     A KappaExpression plus the bookkeeping needed in the context of a Mixture: instance count,
     a signature-dependent index of free sites and bonds by type (self.free_site_list,
@@ -1331,7 +1331,7 @@ if __name__ == '__main__':
     # a simple Kappa string
     s1 = ' A(o[1], p[2] t{p}[3]), B(x[1] y[2] z[.]), C(w[3], y[z.B])'
     agents = kappa.parse(s1)
-    c = KappaExpression(agents)
+    c = KappaRepresentation(agents)
     out = c.kappa_expression()
     print(f"expression:\n{out}")
     out = c.show(internal=True)
@@ -1396,6 +1396,6 @@ if __name__ == '__main__':
     out = kappa.decode(x1.canonical, x1.local_view_index)
     print(out)
     print(f'decoded is isomorphic to original: {SGM.isomorphic(kappa_to_molecule(out), x1)}')
-    expression = canonical_to_expression(x1.canonical, x1.local_view_index)
+    expression = canonical_to_representation(x1.canonical, x1.local_view_index)
     print(expression)
     print(f'decoded is isomorphic to original: {SGM.isomorphic(expression, x1)}')

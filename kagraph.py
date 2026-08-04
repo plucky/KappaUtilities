@@ -111,7 +111,7 @@ class KappaGraph:
             for e in list_of_edges:
                 self.nxGraph.remove_edge(e[0], e[1])
 
-    def delete_node_list(self, node_list=[]):
+    def delete_node_list(self, node_list=None):
         for node in node_list:
             self.nxGraph.remove_node(node)
 
@@ -141,7 +141,7 @@ class KappaGraph:
 if __name__ == '__main__':
 
     ring = 'A(r[.] l[1]),A(r[1] l[2] m[7]),A(r[2] l[3]),A(r[3] l[4]),A(r[4] l[5] m[7]),A(r[5] l[6]),A(r[6] l[.])'
-    c = kamol.KappaComplex(ring)
+    c = kamol.kappa_to_representation(ring)
     print(c.show())
     g = KappaGraph(c)
     cycle = g.get_cycle()
