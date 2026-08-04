@@ -1,4 +1,4 @@
-# Walter Fontana, 2022
+# Walter Fontana, 2022, 2026
 """
 This module manages the 'mixture' of KappaMolecules.
 """
@@ -64,12 +64,12 @@ def load_and_unpack(kappa_file, system=None, local_views={}, signature=None, can
                 # parse the entry
                 match = re.findall(r'%init: (.*?) \/\*(.*?) agents\*\/ (.*?)$', entry)[0]
                 # build the internal representation
-                komplex = kamol.KappaMolecule(kappa.parser(match[2].strip()),
+                komplex = kamol.KappaMolecule(kappa.parse(match[2].strip()),
                                               count=int(match[0]),
                                               system=system,
-                                              sig=signature,
+                                              signature=signature,
                                               canon=canon,
-                                              s_views=lv)  # local_views 'lv' will be updated
+                                              local_view_index=lv)  # local_views 'lv' will be updated
                 complexes.append(komplex)
     del kappa
     return event, uuid, rg_state, time, complexes, lv

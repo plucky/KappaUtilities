@@ -1,17 +1,15 @@
-# Walter Fontana at 4/28/23
+# Walter Fontana at 04/28/23
+# Reorganized by Claude Caude (Sonnet5 High) 08/04/2026
 """
 This module defines the internal representation of a kappa molecule. It implements the parser, and a
- number of utilities, such as copying molecules, binding two molecules, removing a bond from a molecule,
- and identifying fragmentation.
+ number of utilities, such as copying molecules
 """
 import re
-import sys
 import random
 import pprint
 import ujson
 from collections import deque
 from collections import defaultdict
-
 
 class ParseFail(Exception):
     pass
@@ -56,11 +54,11 @@ def get_identifier(name, delimiters=('.', '.')):
     return agent_type, identifier
 
 
-def add_identifier(agent_type, id, delimiters=('.', '.')):
+def add_identifier(agent_type, identifier, delimiters=('.', '.')):
     """
-    Creates an agent name by joining its type with a label ('id').
+    Creates an agent name by joining its type with a label ('identifier').
     """
-    return agent_type + delimiters[0] + id + delimiters[1]
+    return agent_type + delimiters[0] + identifier + delimiters[1]
 
 
 def sort_site_and_bond_lists(mol, s='both'):
@@ -77,7 +75,7 @@ def sort_site_and_bond_lists(mol, s='both'):
                 mol.bond_list_idx[bt][bond] = i  # indices start with 0
 
 
-def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views=None, nav=True, canon=True):
+def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, local_view_index=None, nav=True, canon=True):
     """
     'Deep copies' a KappaMolecule by using a temporary deep-copy of the agent dictionary to generate
     a new KappaMolecule. This is simpler than attempting to deep-copy the KappaMolecule structure
@@ -90,8 +88,8 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views=Non
                                count=count,
                                id_shift=id_shift,
                                system=system,
-                               sig=signature,
-                               s_views=views,
+                               signature=signature,
+                               local_view_index=local_view_index,
                                nav=nav,
                                canon=canon,
                                init=False)
@@ -124,8 +122,8 @@ def copy_molecule(X, count=0, id_shift=0, system=None, signature=None, views=Non
                                count=count,
                                id_shift=id_shift,
                                system=system,
-                               sig=signature,
-                               s_views=views,
+                               signature=signature,
+                               local_view_index=local_view_index,
                                nav=nav,
                                canon=canon,
                                init=False)
@@ -190,7 +188,7 @@ class Kappa:
         self.agents_re = \
             re.compile(r'(?:' + self.sID + r')?(?:' + self.symbols + r')' + r'\([^()]*\)')
 
-    def parser(self, kappa_string, start_label=1):
+    def parse(self, kappa_string, start_label=1):
         self.label_counter = start_label - 1
         self.agents = {}
 
@@ -213,7 +211,7 @@ class Kappa:
     def parse_agent(self, agent_expression):
         match = self.agent_re.match(agent_expression)
         if not match:
-            sys.exit('Invalid agent declaration <' + agent_expression + '>')
+            raise ParseFail(f'Invalid agent declaration <{agent_expression}>')
         agent_sID = match.group(1)
         agent_type = match.group(2)
         self.label_counter += 1
@@ -228,18 +226,18 @@ class Kappa:
         for item in sites:
             try:
                 site_name, state, bond = self.parse_site(item)
-                interface[site_name] = {'state': state, 'bond': bond}
-                # sort interface by site_name
-                interface = dict(sorted(interface.items()))
             except ParseFail:
-                sys.exit('Could not parse site ' + item + ' in ' + agent_expression)
+                raise ParseFail(f'Could not parse site {item} in {agent_expression}')
+            interface[site_name] = {'state': state, 'bond': bond}
+            # sort interface by site_name
+            interface = dict(sorted(interface.items()))
 
         return agent_type, identifier, agent_sID, interface
 
     def parse_site(self, site_expression):
         match = self.site_re.match(site_expression)
         if not match:
-            sys.exit('Could not parse site ' + site_expression)
+            raise ParseFail(f'Could not parse site {site_expression}')
         # return site name, internal state and binding state (without parentheses)
         site_name = match.group(1)
         if match.group(2):  # the modification state; it may be absent, so we need to check
@@ -255,7 +253,7 @@ class Kappa:
                 binding_state = match.group(0)  # either '.' or '#' or number or stub
                 # warning: if the site name starts with '_' we have a problem; fix later...
             else:
-                sys.exit('Could not parse binding state ' + binding_expression)
+                raise ParseFail(f'Could not parse binding state {binding_expression}')
 
         return site_name, internal_state, binding_state
 
@@ -361,38 +359,32 @@ class Kappa:
         return ex[:-2]
 
 
-def Canonical2Expression(canonical, views, nav=True, canon=True):
+def canonical_to_expression(canonical, local_view_index, nav=True, canon=True):
     """
-    Wrapper for creating a Kappa molecule from a canonical form.
+    Wrapper for creating a KappaExpression from a canonical form.
     """
-    _kappa = Kappa()
-    k_expression = _kappa.decode(canonical, views)
-    expression = KappaExpression(agents=_kappa.parser(k_expression), nav=nav, canon=canon)
-    del _kappa
-    return expression
+    parser = Kappa()
+    k_expression = parser.decode(canonical, local_view_index)
+    return KappaExpression(agents=parser.parse(k_expression), nav=nav, canon=canon)
 
 
-def Kappa2Expression(k_expression, id_shift=0, nav=True, canon=False):
+def kappa_to_expression(k_expression, id_shift=0, nav=True, canon=False):
     """
-    Wrapper for creating an object from an expression.
+    Wrapper for creating a KappaExpression from a kappa string. A shortcut for everyday applications.
     """
-    # a shortcut for everyday applications
-    _kappa = Kappa()
-    expression = KappaExpression(agents=_kappa.parser(k_expression), id_shift=id_shift, nav=nav, canon=canon)
-    del _kappa
-    return expression
+    parser = Kappa()
+    return KappaExpression(agents=parser.parse(k_expression), id_shift=id_shift, nav=nav, canon=canon)
 
 
-def KappaComplex(k_expression, count=0, id_shift=0, system=None, signature=None, views={}, nav=True, canon=True):
+def kappa_to_molecule(k_expression, count=0, id_shift=0, system=None, signature=None, local_view_index=None,
+                      nav=True, canon=True):
     """
-    Wrapper for creating a Kappa molecule from an expression.
+    Wrapper for creating a KappaMolecule from a kappa string. A shortcut for everyday applications.
     """
-    # a shortcut for everyday applications
-    _kappa = Kappa()
-    molecule = KappaMolecule(agents=_kappa.parser(k_expression), count=count, id_shift=id_shift,
-                             system=system, sig=signature, s_views=views, nav=nav, canon=canon)
-    del _kappa
-    return molecule
+    parser = Kappa()
+    return KappaMolecule(agents=parser.parse(k_expression), count=count, id_shift=id_shift,
+                          system=system, signature=signature, local_view_index=local_view_index,
+                          nav=nav, canon=canon)
 
 
 class KappaExpression:
@@ -462,9 +454,9 @@ class KappaExpression:
         self.id_shift = id_shift
 
         if init:
-            self.initializeExpression(canon=self.canon, nav=self.nav)
+            self.initialize_expression(canon=self.canon, nav=self.nav)
 
-    def initializeExpression(self, canon=False, nav=False):
+    def initialize_expression(self, canon=False, nav=False):
         # size
         self.size = len(self.agents)
 
@@ -487,173 +479,153 @@ class KappaExpression:
         if nav:
             # Get the type lists for site graph matching. This is mostly for offline processing.
             # In simulation, we don't match via graph traversal, but by computing a canonical form.
-            for at in self.composition:
-                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-            self.embedding_anchor = self.type_slice[0][0]
-            # construct adjacency lists
-            if not self.adjacency:
-                self.make_adjacency_lists()
-            # assemble the navigation list for embeddings
-            self.make_navigation_list()
+            self._setup_navigation()
+
+    def _setup_navigation(self):
+        """
+        Builds per-type agent-name lists (self.type_slice) and the site-graph navigation table
+        (self.navigation) used for pattern-matching embeddings.
+        """
+        self.type_slice = [[name for name in self.agents if self.agents[name]['info']['type'] == at]
+                           for at in self.composition]
+        self.embedding_anchor = self.type_slice[0][0]
+        if not self.adjacency:
+            self.make_adjacency_lists()
+        self.make_navigation_list()
 
     def stubbify_bonds(self, id_shift=0, normalize=True):
         """
-        Replaces bond labels with bond stubs.
+        Replaces numeric bond labels in agent interfaces with unique bond stubs of the form
+        'name@site', which is the bond representation used throughout this module.
         """
         self.n_free_sites = 0
+        self.is_pattern = False
 
         if not normalize:
             if id_shift == 0:
-                self.stubbify_bonds_no_shift()
+                self._stubbify_inplace()
             else:
-                self.stubbify_bonds_with_shift(id_shift=id_shift)
+                self._stubbify_rebuild(id_shift=id_shift)
         else:
-            self.stubbify_bonds_with_shift(remap=self.normalize_ids(id_shift=id_shift))
+            self._stubbify_rebuild(remapping=self.normalize_ids(id_shift=id_shift))
 
-        # sort_site_and_bond_lists(self)
-
-    def stubbify_bonds_no_shift(self):
+    def _stubbify_inplace(self):
         """
-        Replaces numeric bond labels with unique bond stubs.
+        Replaces numeric bond labels with unique bond stubs, in place.
         For example, A.14.(b[2]), Z.3.(j[2]) becomes A.14.(b[Z.3.@j]), Z.3.(j[A.14.@b]).
-
-        generates:
-            self.bonds
-            self.bond_type
-            self.bond_type_list
-            self.free_site
-            self.free_site_list
-            self.agent_self_binding
         """
         # Note: If we are dealing with an object that contains a bond pattern, the degree of a node has no meaning.
         self.bonds = {}
-        bonds = {}
-        stubs = []
+        pending = {}  # numeric bond label -> (name, site) awaiting its partner
+        confirmed_stubs = []  # bond stubs seen once, awaiting confirmation from their partner site
         for name in self.agents:
             degree = 0
-            agent_free_site_types = set()
             for site in self.agents[name]['iface']:
                 link = self.agents[name]['iface'][site]['bond']
-                if link != '.':
-                    if is_number(link):
-                        degree += 1
-                        if link in bonds:
-                            [(name1, site1)] = bonds[link]
-                            # stubbify
-                            self.agents[name1]['iface'][site1]['bond'] = ''.join([name, self.bond_sep, site])
-                            self.agents[name]['iface'][site]['bond'] = ''.join([name1, self.bond_sep, site1])
-                        else:
-                            bonds[link] = [(name, site)]
-                            continue
-                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
-                    elif self.bond_sep in link:
-                        degree += 1
-                        name1, site1 = link.split(self.bond_sep)
-                        complement = self.agents[name1]['iface'][site1]['bond']
-                        if complement not in stubs:
-                            stubs += [link]
-                            continue
-                    else:
-                        # bond state is a ghost, or '_', or '#'
-                        # degree = -1  # reset and flag, just in case
-                        self.is_pattern = True
-                        continue
-                    # This purpose of this section is to
-                    #  (1) identify the bonds and store them as keys in self.bonds
-                    #  (2) count the bond types (used to calculate reaction propensities).
-                    # Note: we can get here only from the case in which we have already seen the partner
-                    # of the bond of agent 'name' at site 'site'. That partner is 'name1' at site 'site1'.
-                    # We standardize the bond by sorting.
-                    b = sorted([(name1, site1), (name, site)], key=lambda x: (alphanum_key(x[0]), alphanum_key(x[1])))
-                    b = tuple(b)
-                    # collect unique bonds
-                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                else:
+                if link == '.':
                     self.n_free_sites += 1
+                    continue
+                if is_number(link):
+                    degree += 1
+                    if link in pending:
+                        [(name1, site1)] = pending[link]
+                        # stubbify
+                        self.agents[name1]['iface'][site1]['bond'] = ''.join([name, self.bond_sep, site])
+                        self.agents[name]['iface'][site]['bond'] = ''.join([name1, self.bond_sep, site1])
+                    else:
+                        pending[link] = [(name, site)]
+                        continue
+                elif self.bond_sep in link:
+                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
+                    degree += 1
+                    name1, site1 = link.split(self.bond_sep)
+                    complement = self.agents[name1]['iface'][site1]['bond']
+                    if complement not in confirmed_stubs:
+                        confirmed_stubs += [link]
+                        continue
+                else:
+                    # bond state is a ghost, or '_', or '#'
+                    self.is_pattern = True
+                    continue
+                # We get here only once we've seen both ends of a bond -- the partner of the bond of
+                # agent 'name' at site 'site' is 'name1' at site 'site1'. Standardize the bond by
+                # sorting, then collect it as a unique key in self.bonds.
+                b = tuple(sorted([(name1, site1), (name, site)],
+                                 key=lambda x: (alphanum_key(x[0]), alphanum_key(x[1]))))
+                self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
             self.agents[name]['info']['degree'] = degree
 
-    def stubbify_bonds_with_shift(self, id_shift=0, remap=None):
+    def _stubbify_rebuild(self, id_shift=0, remapping=None):
         """
-        Replaces numeric bond labels with unique bond stubs much like stubbify_bonds_no_shift(),
-        but also executes a label remapping and label shift. Absent a remap and an id_shift,
-        it amounts to stubbify_bonds_no_shift(). However, since it creates a new agent dictionary,
-        it is preferable to use stubbify_bonds_no_shift() in that case, especially if
-        complexes are very large. (We could merge the two functions at the cost of a few conditionals.)
+        Replaces numeric bond labels with unique bond stubs much like _stubbify_inplace(), but also
+        relabels agent identifiers (via `remapping`, or by a uniform `id_shift` if no remapping is
+        given) and builds a fresh agent dictionary, since the agent names change. Absent a remapping
+        and an id_shift, it amounts to _stubbify_inplace() -- prefer that in this case, especially
+        for very large complexes, since it avoids rebuilding the whole agent dictionary.
 
-        The label shift is needed when we connect molecules into a larger molecules.
-        The fusion requires shifting the agent identifiers of one of the molecules by the number
-        of agents contained in the other.
+        The label shift is needed when connecting molecules into a larger molecule: the fusion
+        requires shifting the agent identifiers of one of the molecules by the number of agents
+        contained in the other.
         """
         self.bonds = {}
-        bonds = {}
-        stubs = []
+        pending = {}
+        confirmed_stubs = []
         new_agents = {}
-        remapping = remap
-        if not remap:
-            # identity
-            remapping = [str(i + id_shift) for i in range(1, len(self.agents) + 1)]
+        if remapping is None:
+            remapping = {entry['info']['id']: str(int(entry['info']['id']) + id_shift)
+                         for entry in self.agents.values()}
 
         for name in self.agents:
-            #
-            type1 = self.agents[name]['info']['type']
-            sID = self.agents[name]['info']['sID']
-            new_id = remapping[self.agents[name]['info']['id']]
-            # new_id = str(int(self.agents[name]['info']['id']) + id_shift)
-            new_name = add_identifier(self.agents[name]['info']['type'], new_id)
-            new_agents[new_name] = {}
-            new_agents[new_name]['iface'] = {}
-            new_agents[new_name]['info'] = {'id': new_id, 'type': type1, 'sID': sID, 'degree': 0}
-            new_agents[new_name]['local_view'] = self.agents[name]['local_view']  # shift-independent
+            entry = self.agents[name]
+            agent_type = entry['info']['type']
+            new_id = remapping[entry['info']['id']]
+            new_name = add_identifier(agent_type, new_id)
+            new_agents[new_name] = {
+                'iface': {},
+                'info': {'id': new_id, 'type': agent_type, 'sID': entry['info']['sID'], 'degree': 0},
+                'local_view': entry['local_view'],  # shift-independent
+            }
             degree = 0
-            agent_free_site_types = []
-            for site in self.agents[name]['iface']:
-                new_agents[new_name]['iface'][site] = {}
-                new_agents[new_name]['iface'][site]['state'] = self.agents[name]['iface'][site]['state']
-                # may be overwritten below
-                new_agents[new_name]['iface'][site]['bond'] = self.agents[name]['iface'][site]['bond']
-                link = self.agents[name]['iface'][site]['bond']
-                if link != '.':
-                    if is_number(link):
-                        degree += 1
-                        if link in bonds:
-                            (name1, site1) = bonds[link]
-                            # stubbify
-                            new_id1 = remapping[self.agents[name1]['info']['id']]
-                            # new_id1 = str(int(self.agents[name1]['info']['id']) + id_shift)
-                            new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
-                            new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
-                            new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
-                        else:
-                            bonds[link] = (name, site)
-                            continue
-                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
-                    elif self.bond_sep in link:
-                        degree += 1
-                        name1, site1 = link.split(self.bond_sep)
-                        complement = self.agents[name1]['iface'][site1]['bond']
-                        if complement in stubs:
-                            new_id1 = remapping[self.agents[name1]['info']['id']]
-                            # new_id1 = str(int(self.agents[name1]['info']['id']) + id_shift)
-                            new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
-                            new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
-                            new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
-                        else:
-                            stubs += [link]
-                            continue
-                    else:
-                        # bond state is a ghost, or '_', or '#'
-                        # degree = -1  # reset and flag, just in case
-                        self.is_pattern = True
-                        continue
-                    n1 = self.agents[name1]['info']['type']
-                    n = self.agents[name]['info']['type']
-                    (t1, l1, s1), (t2, l2, s2) = sorted([(n1, int(new_id1), site1), (n, int(new_id), site)])
-                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
-                    # collect unique bonds
-                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                    # count the bond *types* (to compute reactivity); here labels don't matter
-                else:
+            for site, port in entry['iface'].items():
+                # bond may be overwritten below, once its partner is found
+                new_agents[new_name]['iface'][site] = {'state': port['state'], 'bond': port['bond']}
+                link = port['bond']
+                if link == '.':
                     self.n_free_sites += 1
+                    continue
+                if is_number(link):
+                    degree += 1
+                    if link in pending:
+                        name1, site1 = pending[link]
+                        new_id1 = remapping[self.agents[name1]['info']['id']]
+                        new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
+                        new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
+                        new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
+                    else:
+                        pending[link] = (name, site)
+                        continue
+                elif self.bond_sep in link:
+                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
+                    degree += 1
+                    name1, site1 = link.split(self.bond_sep)
+                    complement = self.agents[name1]['iface'][site1]['bond']
+                    if complement in confirmed_stubs:
+                        new_id1 = remapping[self.agents[name1]['info']['id']]
+                        new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
+                        new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
+                        new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
+                    else:
+                        confirmed_stubs += [link]
+                        continue
+                else:
+                    # bond state is a ghost, or '_', or '#'
+                    self.is_pattern = True
+                    continue
+                n1 = self.agents[name1]['info']['type']
+                (t1, l1, s1), (t2, l2, s2) = sorted([(n1, int(new_id1), site1), (agent_type, int(new_id), site)])
+                b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
+                # collect unique bonds
+                self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
             new_agents[new_name]['info']['degree'] = degree
         self.agents = new_agents
 
@@ -897,15 +869,9 @@ class KappaExpression:
         self.make_adjacency_lists()
 
         if self.nav:
-            # get the type lists for matching
-            self.type_slice = []
-            for at in self.composition:
-                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-            self.embedding_anchor = self.type_slice[0][0]
-            # assemble the navigation list for embeddings
-            self.make_navigation_list()
+            self._setup_navigation()
 
-        if self.canon:
+        if self.canon and not self.is_pattern:
             self.get_local_views()
             self.make_local_view_lists()
             self.canonical = self.canonicalize()
@@ -1008,33 +974,47 @@ class KappaExpression:
 
     def summary(self, internal=False, show_bonds=False, reactivity=False, db_level=0, pp_width=40):
         """
-        Prints summary of the molecule at various levels of detail.
+        Prints a summary of the molecule at various levels of detail.
         """
-        info = '\n'
-        info += f"{''.ljust(70, '-')}\n"
-        info += f'{self.size} agents, {len(self.bonds)} bonds, and {self.n_free_sites} free sites\n'
+        dashes = ''.ljust(70, '-')
+        info = '\n' + f'{dashes}\n'
+        info += self._signature_warning()
+        info += f'{self._count_prefix()}{self.size} agents, {len(self.bonds)} bonds, and {self.n_free_sites} free sites\n'
         info += f'composition: {self.sum_formula}\n'
         if self.is_pattern:
-            info += f'expression is a pattern !\n'
+            info += 'expression is a pattern !\n'
         info += self.show(internal=internal, wrap=200) + '\n'
-        info += f"{''.ljust(70, '-')}\n"
+        info += f'{dashes}\n'
         if show_bonds:
             info += self.report_bonds(db_level=db_level, pp_width=3)
+        info += self._reactivity_report(reactivity, pp_width)
         return info
+
+    def _signature_warning(self):
+        """Hook for KappaMolecule: warns when no signature is available for reactivity bookkeeping."""
+        return ''
+
+    def _count_prefix(self):
+        """Hook for KappaMolecule: prefixes the agent/bond/free-site count line with the instance count."""
+        return ''
+
+    def _reactivity_report(self, reactivity, pp_width):
+        """Hook for KappaMolecule: appends a reaction-propensity report when requested."""
+        return ''
 
     def report_bonds(self, db_level=0, pp_width=40):
         """
-        Prints the bond types and free site types of the molecule.
+        Lists the bonds of the molecule (verbose, unaware of any signature).
+        Overridden by KappaMolecule to additionally report by bond/site type.
         """
-        info = ''
-        if db_level == 2:
-            info += f"\n"
-            s = f'list of bonds (random order):'
-            info += f'{s:>{pp_width}}\n'
-            for (a1, s1), (a2, s2) in self.bonds:
-                b1 = ''.join([a1, s1])
-                b2 = ''.join([a2, s2])
-                info += f'{"":>{pp_width}} {b1}<->{b2}\n'
+        return self._bond_listing(pp_width) if db_level == 2 else ''
+
+    def _bond_listing(self, pp_width):
+        info = '\n'
+        s = 'list of bonds (random order):'
+        info += f'{s:>{pp_width}}\n'
+        for (a1, s1), (a2, s2) in self.bonds:
+            info += f'{"":>{pp_width}} {a1}{s1}<->{a2}{s2}\n'
         return info
 
     def show(self, internal=False, label=False, wrap=-1):
@@ -1090,39 +1070,21 @@ class KappaExpression:
 
 class KappaMolecule(KappaExpression):
     """
-    Constructs the internal representation of a KappaMolecule, which is a KappaExpression plus
-    content required in the context of a Mixture
-
-        self.agents[name] =
-           {
-            'iface': { site_name: {'state': state, 'bond': bond stub}
-            'info': {'id': local id, 'type': agent type, 'sID': SiteSim identifier, 'degree': int n}
-            'local_view': local_view
-            }
-        self.adjacency[name] = [ agent1, agent2, ... ]
-                self.bonds   = { ( (agent1, site1), (agent2, site2) ) }  # an 'indicator': d[tuple] = 1
-
-        * the interface dictionary of an agent is sorted by site name (needs Python 3.7+)
-        * agent names are unique, consisting of type + identifier, eg Axin.42. (including the last dot),
-          where the right and left separators (dots by default) are given by self.idsep.
-        * self.bonds is a list of unique tuples -- (agent1, site1), (agent2, site2) -- lexicographically
-          sorted on agent.
-        * bonds are stubs of the form name@site indicating the name of the agent and site
-          that anchors the other end of the bond.
-          A dictionary has no order by construction, but we can fake an order by iterating through it using
-          an ordered list of its keys, whenever order is desired (such as in re-assigning identifiers or
-          pretty printing)
-        * all types are string, except when otherwise noted.
+    A KappaExpression plus the bookkeeping needed in the context of a Mixture: instance count,
+    a signature-dependent index of free sites and bonds by type (self.free_site_list,
+    self.bond_list, and their sibling counters), and the intra-molecular reaction propensities
+    derived from them (self.binding, self.unbinding). See KappaExpression for the underlying
+    site-graph representation (self.agents, self.adjacency, self.bonds, ...).
     """
 
     def __init__(self,
                  agents=None,
                  count=0,
                  id_shift=0,
-                 sig=None,
+                 signature=None,
                  system=None,
-                 s_views={},
-                 has_views=False,
+                 local_view_index=None,
+                 has_local_views=False,
                  nav=True,
                  canon=True,
                  init=True):
@@ -1132,7 +1094,7 @@ class KappaMolecule(KappaExpression):
         self.count = count
 
         self.system = system
-        self.signature = sig
+        self.signature = signature
 
         # we need these to compute reaction propensities
         self.free_site = {}  # number of free sites of a given type
@@ -1148,12 +1110,13 @@ class KappaMolecule(KappaExpression):
         self.unbinding = {}  # propensity of internal bond dissociation; indexed by bond type
         self.binding = {}  # propensity of internal bond formation; indexed by bond type
 
-        self.has_local_views = has_views
-        # Local view indices of the mixture in the context of which molecules are canonicalized
-        # -> keep in mind that changes in self.local_view_index are implicitly returned via s_views
-        self.local_view_index = s_views
+        self.has_local_views = has_local_views
+        # Local view indices of the mixture in the context of which molecules are canonicalized.
+        # Keep in mind that changes in self.local_view_index are implicitly returned to the caller,
+        # since a mutable dict is shared, not copied.
+        self.local_view_index = {} if local_view_index is None else local_view_index
 
-        # override so we don't have to set sig and views
+        # override so we don't have to set signature and local_view_index individually
         if self.system:
             # signature is used for computing internal reaction propensities
             self.signature = self.system.signature
@@ -1167,10 +1130,10 @@ class KappaMolecule(KappaExpression):
             return
 
         if init:
-            self.initializeExpression(canon=False, nav=self.nav)
-            self.initializeMolecule()
+            self.initialize_expression(canon=False, nav=self.nav)
+            self.initialize_molecule()
 
-    def initializeMolecule(self):
+    def initialize_molecule(self):
         if self.system:
             if self.size >= self.system.size_threshold:
                 # self.canon = False
@@ -1189,6 +1152,7 @@ class KappaMolecule(KappaExpression):
 
         # calculate reaction propensities
         if self.signature:
+            self._update_reactive_statistics()
             self.internal_reactivity()
 
     def initialize_light(self):
@@ -1204,15 +1168,11 @@ class KappaMolecule(KappaExpression):
         self.make_adjacency_lists()
 
         if self.nav:
-            # get the type lists for matching
-            for at in self.composition:
-                self.type_slice.extend([[name for name in self.agents if self.agents[name]['info']['type'] == at]])
-            self.embedding_anchor = self.type_slice[0][0]
-            # assemble the navigation list for embeddings
-            self.make_navigation_list()
+            self._setup_navigation()
 
         # calculate reaction propensities
         if self.signature:
+            self._update_reactive_statistics()
             self.internal_reactivity()
 
     def internal_reactivity(self):
@@ -1245,211 +1205,40 @@ class KappaMolecule(KappaExpression):
             self.bond_list_idx[bt] = {}
             self.agent_self_binding[bt] = 0
 
-    def stubbify_bonds(self, id_shift=0, normalize=True):
+    def _update_reactive_statistics(self):
         """
-        Replaces bond labels with bond stubs.
+        (Re)computes signature-dependent bookkeeping used for reaction-propensity calculations:
+        per-type free-site and bond lists/counts, and the number of intra-agent binding
+        opportunities excluded from the combinatorial bond-formation counts. Assumes bonds are
+        already stubbified (self.bonds and self.agents[...]['iface'][...]['bond'] are current).
         """
-        if self.signature:
-            self.clear_type_lists()
+        self.clear_type_lists()
 
-        if not normalize:
-            if id_shift == 0:
-                self.stubbify_bonds_no_shift()
-            else:
-                self.stubbify_bonds_with_shift(id_shift=id_shift)
-        else:
-            self.stubbify_bonds_with_shift(remap=self.normalize_ids(id_shift=id_shift))
+        for b in self.bonds:
+            bt = bond2type(b)
+            self.bond_list[bt].append(b)
+            self.bond_list_idx[bt][b] = self.bond_type[bt]  # (ab)used as a counter
+            self.bond_type[bt] += 1
 
-        # sort_site_and_bond_lists(self)
-
-    def stubbify_bonds_no_shift(self):
-        """
-        Replaces numeric bond labels with unique bond stubs.
-        For example, A.14.(b[2]), Z.3.(j[2]) becomes A.14.(b[Z.3.@j]), Z.3.(j[A.14.@b]).
-
-        generates:
-            self.bonds
-            self.bond_type
-            self.bond_type_list
-            self.free_site
-            self.free_site_list
-            self.agent_self_binding
-        """
-        # Note: If we are dealing with an object that contains a bond pattern, the degree of a node has no meaning.
-        self.bonds = {}
-        bonds = {}
-        stubs = []
-        for name in self.agents:
-            degree = 0
+        for name, entry in self.agents.items():
+            agent_type = entry['info']['type']
+            # the local free-site types of this agent, used below to detect self-binding opportunities
             agent_free_site_types = set()
-            for site in self.agents[name]['iface']:
-                link = self.agents[name]['iface'][site]['bond']
-                if link != '.':
-                    if is_number(link):
-                        degree += 1
-                        if link in bonds:
-                            [(name1, site1)] = bonds[link]
-                            # stubbify
-                            self.agents[name1]['iface'][site1]['bond'] = ''.join([name, self.bond_sep, site])
-                            self.agents[name]['iface'][site]['bond'] = ''.join([name1, self.bond_sep, site1])
-                        else:
-                            bonds[link] = [(name, site)]
-                            continue
-                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
-                    elif self.bond_sep in link:
-                        degree += 1
-                        name1, site1 = link.split(self.bond_sep)
-                        complement = self.agents[name1]['iface'][site1]['bond']
-                        if complement not in stubs:
-                            stubs += [link]
-                            continue
-                    else:
-                        # bond state is a ghost, or '_', or '#'
-                        # degree = -1  # reset and flag, just in case
-                        self.is_pattern = True
-                        continue
-                    # This purpose of this section is to
-                    #  (1) identify the bonds and store them as keys in self.bonds
-                    #  (2) count the bond types (used to calculate reaction propensities).
-                    # Note: we can get here only from the case in which we have already seen the partner
-                    # of the bond of agent 'name' at site 'site'. That partner is 'name1' at site 'site1'.
-                    # We standardize the bond by sorting.
-                    b = sorted([(name1, site1), (name, site)], key=lambda x: (alphanum_key(x[0]), alphanum_key(x[1])))
-                    b = tuple(b)
-                    # collect unique bonds
-                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                    # count the bond *types* (to compute reactivity); here labels don't matter
-                    if self.signature:
-                        bt = bond2type(b)
-                        self.bond_list[bt].append(b)
-                        self.bond_list_idx[bt][b] = self.bond_type[bt]  # (ab)used as a counter
-                        self.bond_type[bt] += 1
-                else:
-                    # The site is not bound.
-                    # Accumulate the free sites in the molecule.
-                    if self.signature:
-                        # count the free sites (to compute reaction propensities)
-                        st = ''.join([self.agents[name]['info']['type'], '.', site])
-                        agent_free_site_types.add(st)  # a local agent-specific set, used below
-                        self.free_site_list[st].append((name, site))
-                        self.free_site_list_idx[st][(name, site)] = self.free_site[st]  # (ab)used as a counter
-                        self.free_site[st] += 1
-            if self.signature:
-                # Accumulate the intra-agent binding opportunities within the whole molecule.
-                # This will be used to correct the intra-molecular bond formation propensity
-                # (by removing agent self-binding).
-                for bt in self.signature.bond_types:
-                    st1, st2 = bt
-                    # The case st1 == st2 cannot arise within a single Kappa agent
-                    if st1 != st2:
-                        if st1 in agent_free_site_types and st2 in agent_free_site_types:
-                            self.agent_self_binding[bt] += 1
-
-            self.agents[name]['info']['degree'] = degree
-
-    def stubbify_bonds_with_shift(self, id_shift=0, remap=None):
-        """
-        Replaces numeric bond labels with unique bond stubs much like stubbify_bonds_no_shift(),
-        but also executes a label remapping and label shift. Absent a remap and an id_shift,
-        it amounts to stubbify_bonds_no_shift(). However, since it creates a new agent dictionary,
-        it is preferable to use stubbify_bonds_no_shift() in that case, especially if
-        complexes are very large. (We could merge the two functions at the cost of a few conditionals.)
-
-        The label shift is needed when we connect molecules into a larger molecules.
-        The fusion requires shifting the agent identifiers of one of the molecules by the number
-        of agents contained in the other.
-        """
-        self.bonds = {}
-        bonds = {}
-        stubs = []
-        new_agents = {}
-        remapping = remap
-        if not remap:
-            # identity
-            remapping = [str(i + id_shift) for i in range(1, len(self.agents) + 1)]
-
-        for name in self.agents:
-            #
-            type1 = self.agents[name]['info']['type']
-            sID = self.agents[name]['info']['sID']
-            new_id = remapping[self.agents[name]['info']['id']]
-            # new_id = str(int(self.agents[name]['info']['id']) + id_shift)
-            new_name = add_identifier(self.agents[name]['info']['type'], new_id)
-            new_agents[new_name] = {}
-            new_agents[new_name]['iface'] = {}
-            new_agents[new_name]['info'] = {'id': new_id, 'type': type1, 'sID': sID, 'degree': 0}
-            new_agents[new_name]['local_view'] = self.agents[name]['local_view']  # shift-independent
-            degree = 0
-            agent_free_site_types = []
-            for site in self.agents[name]['iface']:
-                new_agents[new_name]['iface'][site] = {}
-                new_agents[new_name]['iface'][site]['state'] = self.agents[name]['iface'][site]['state']
-                # may be overwritten below
-                new_agents[new_name]['iface'][site]['bond'] = self.agents[name]['iface'][site]['bond']
-                link = self.agents[name]['iface'][site]['bond']
-                if link != '.':
-                    if is_number(link):
-                        degree += 1
-                        if link in bonds:
-                            (name1, site1) = bonds[link]
-                            # stubbify
-                            new_id1 = remapping[self.agents[name1]['info']['id']]
-                            # new_id1 = str(int(self.agents[name1]['info']['id']) + id_shift)
-                            new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
-                            new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
-                            new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
-                        else:
-                            bonds[link] = (name, site)
-                            continue
-                    # this occurs when we created the molecule with an already 'stubbified' agent dictionary
-                    elif self.bond_sep in link:
-                        degree += 1
-                        name1, site1 = link.split(self.bond_sep)
-                        complement = self.agents[name1]['iface'][site1]['bond']
-                        if complement in stubs:
-                            new_id1 = remapping[self.agents[name1]['info']['id']]
-                            # new_id1 = str(int(self.agents[name1]['info']['id']) + id_shift)
-                            new_name1 = add_identifier(self.agents[name1]['info']['type'], new_id1)
-                            new_agents[new_name1]['iface'][site1]['bond'] = ''.join([new_name, self.bond_sep, site])
-                            new_agents[new_name]['iface'][site]['bond'] = ''.join([new_name1, self.bond_sep, site1])
-                        else:
-                            stubs += [link]
-                            continue
-                    else:
-                        # bond state is a ghost, or '_', or '#'
-                        # degree = -1  # reset and flag, just in case
-                        self.is_pattern = True
-                        continue
-                    n1 = self.agents[name1]['info']['type']
-                    n = self.agents[name]['info']['type']
-                    (t1, l1, s1), (t2, l2, s2) = sorted([(n1, int(new_id1), site1), (n, int(new_id), site)])
-                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
-                    # collect unique bonds
-                    self.bonds[b] = 1  # just an indicator; we are collecting unique keys (bonds)
-                    # count the bond *types* (to compute reactivity); here labels don't matter
-                    if self.signature:
-                        (t1, s1), (t2, s2) = sorted([(n1, site1), (n, site)])
-                        bt = (''.join([t1, '.', s1]), ''.join([t2, '.', s2]))
-                        self.bond_list[bt].append(b)
-                        self.bond_list_idx[bt][b] = self.bond_type[bt]  # (ab)used as a counter
-                        self.bond_type[bt] += 1
-                else:
-                    if self.signature:
-                        # count the free sites for the whole molecule (to compute reactivity)
-                        st = ''.join([self.agents[name]['info']['type'], '.', site])
-                        agent_free_site_types += [st]
-                        self.free_site_list[st].append((new_name, site))
-                        self.free_site_list_idx[st][(new_name, site)] = self.free_site[st]  # (ab)used as a counter
-                        self.free_site[st] += 1
-            if self.signature:
-                for bt in self.signature.bond_types:
-                    st1, st2 = bt
-                    if st1 != st2:
-                        if st1 in agent_free_site_types and st2 in agent_free_site_types:
-                            self.agent_self_binding[bt] += 1
-
-            new_agents[new_name]['info']['degree'] = degree
-        self.agents = new_agents
+            for site, port in entry['iface'].items():
+                if port['bond'] == '.':
+                    st = f'{agent_type}.{site}'
+                    agent_free_site_types.add(st)
+                    self.free_site_list[st].append((name, site))
+                    self.free_site_list_idx[st][(name, site)] = self.free_site[st]  # (ab)used as a counter
+                    self.free_site[st] += 1
+            # Accumulate the intra-agent binding opportunities within the whole molecule.
+            # This will be used to correct the intra-molecular bond formation propensity
+            # (by removing agent self-binding).
+            for bt in self.signature.bond_types:
+                st1, st2 = bt
+                # The case st1 == st2 cannot arise within a single Kappa agent
+                if st1 != st2 and st1 in agent_free_site_types and st2 in agent_free_site_types:
+                    self.agent_self_binding[bt] += 1
 
     def remap_ids(self, remapping):
         """
@@ -1459,74 +1248,25 @@ class KappaMolecule(KappaExpression):
         self._remap_ids(remapping)
 
         if self.signature:
-            new_bond_list = {}
-            new_bond_list_idx = {}
-            for bt in self.signature.bond_types:
-                new_list = []
-                new_list_idx = {}
-                for (b1, b2) in self.bond_list[bt]:
-                    n1, s1 = b1
-                    n2, s2 = b2
-                    t1, id1 = get_identifier(n1)
-                    t2, id2 = get_identifier(n2)
-                    new_id1 = remapping[id1]
-                    new_id2 = remapping[id2]
-                    (t1, l1, s1), (t2, l2, s2) = sorted([(t1, int(new_id1), s1), (t2, int(new_id2), s2)])
-                    b = (add_identifier(t1, str(l1)), s1), (add_identifier(t2, str(l2)), s2)
-                    new_list.append(b)
-                    new_list_idx[b] = len(new_list) - 1
-                new_bond_list[bt] = new_list
-                new_bond_list_idx[bt] = new_list_idx
-            self.bond_list = new_bond_list
-            self.bond_list_idx = new_bond_list_idx
+            self._update_reactive_statistics()
 
-            new_free_site_list = {}
-            new_free_site_list_idx = {}
-            for st in self.signature.site_types:
-                new_list = []
-                new_list_idx = {}
-                for (name, site) in self.free_site_list[st]:
-                    t1, id1 = get_identifier(name)
-                    new_id1 = remapping[id1]
-                    new_name = add_identifier(t1, str(new_id1))
-                    new_list.append((new_name, site))
-                    new_list_idx[(new_name, site)] = len(new_list) - 1
-                new_free_site_list[st] = new_list
-                new_free_site_list_idx[st] = new_list_idx
-            self.free_site_list = new_free_site_list
-            self.free_site_list_idx = new_free_site_list_idx
+    def _signature_warning(self):
+        return '' if self.signature else 'Warning: no signature. Counts presume a signature.\n'
 
-    def summary(self, internal=False, show_bonds=False, reactivity=False, db_level=0, pp_width=40):
-        """
-        Prints summary of the molecule at various levels of detail.
-        """
-        info = '\n'
-        info += f"{''.ljust(70, '-')}\n"
-        n_free_sites = 0
-        if not self.signature:
-            info += 'Warning: no signature. Counts presume a signature.\n'
-        for st in self.free_site:
-            n_free_sites += self.free_site[st]
-        info += f'[count: {self.count}] {self.size} agents, {len(self.bonds)} bonds, and {n_free_sites} free sites\n'
-        info += f'composition: {self.sum_formula}\n'
-        if self.is_pattern:
-            info += f'expression is a pattern !\n'
-        info += self.show(internal=internal, wrap=200) + '\n'
-        info += f"{''.ljust(70, '-')}\n"
-        if show_bonds:
-            info += self.report_bond_types_and_free_sites(db_level=db_level, pp_width=3)
-        if reactivity:
-            info += self.report_internal_reaction_propensities(pp_width=pp_width)
-        return info
+    def _count_prefix(self):
+        return f'[count: {self.count}] '
 
-    def report_bond_types_and_free_sites(self, db_level=0, pp_width=40):
+    def _reactivity_report(self, reactivity, pp_width):
+        return self.report_internal_reaction_propensities(pp_width=pp_width) if reactivity else ''
+
+    def report_bonds(self, db_level=0, pp_width=40):
         """
-        Prints the bond types and free site types of the molecule.
+        Lists the bond and free-site counts by type (requires a signature); falls back to
+        the raw bond listing (see KappaExpression.report_bonds) when db_level == 2.
         """
-        info = ''
         if self.signature:
             s = f'{len(self.bond_type)} bond types:'
-            info += f'{s:>{pp_width}}\n'
+            info = f'{s:>{pp_width}}\n'
             for bt in self.bond_type:
                 if self.bond_type[bt] != 0:
                     s1, s2 = bt
@@ -1545,13 +1285,7 @@ class KappaMolecule(KappaExpression):
             info = 'Warning: no signature. (Use db_level 2 for a full list of bonds.)\n'
 
         if db_level == 2:
-            info += f"\n"
-            s = f'list of bonds (random order):'
-            info += f'{s:>{pp_width}}\n'
-            for (a1, s1), (a2, s2) in self.bonds:
-                b1 = ''.join([a1, s1])
-                b2 = ''.join([a2, s2])
-                info += f'{"":>{pp_width}} {b1}<->{b2}\n'
+            info += self._bond_listing(pp_width)
         return info
 
     def report_internal_reaction_propensities(self, pp_width=40):
@@ -1596,7 +1330,7 @@ if __name__ == '__main__':
     kappa = Kappa()
     # a simple Kappa string
     s1 = ' A(o[1], p[2] t{p}[3]), B(x[1] y[2] z[.]), C(w[3], y[z.B])'
-    agents = kappa.parser(s1)
+    agents = kappa.parse(s1)
     c = KappaExpression(agents)
     out = c.kappa_expression()
     print(f"expression:\n{out}")
@@ -1606,7 +1340,7 @@ if __name__ == '__main__':
     print("--------------")
 
     s2 = " x222667:P(a1[.] a2[.] a3[.] d[1]), x251065:P(a1[.] a2[.] a3[.] d[1])"
-    agents = kappa.parser(s2)
+    agents = kappa.parse(s2)
     c = KappaMolecule(agents)
     out = c.kappa_expression()
     print(f"expression:\n{out}")
@@ -1627,7 +1361,7 @@ if __name__ == '__main__':
     # for molecule in snapshot.complexes:
     #     canonical = molecule.canonical
     #     print(canonical)
-    #     molecule_ = KappaComplex(kappa.decode(canonical, snapshot.local_views))
+    #     molecule_ = kappa_to_molecule(kappa.decode(canonical, snapshot.local_views))
     #     print(f'decoded is isomorphic to original: {SGM.isomorphic(molecule, molecule_)}')
 
     print("--------------")
@@ -1656,12 +1390,12 @@ if __name__ == '__main__':
     # import kasig as sig
 
     data = 'A(a1[1] a2[2] a3[3] c[8]), A(a1[1] a2[2] a3[3] c[4]) A(a1[5] a2[6] a3[7] c[4]), A(a1[5] a2[6] a3[7] c[8])'
-    x1 = KappaComplex(data)
+    x1 = kappa_to_molecule(data)
     print(x1.kappa_expression())
     print(x1.canonical)
     out = kappa.decode(x1.canonical, x1.local_view_index)
     print(out)
-    print(f'decoded is isomorphic to original: {SGM.isomorphic(KappaComplex(out), x1)}')
-    expression = Canonical2Expression(x1.canonical, x1.local_view_index)
+    print(f'decoded is isomorphic to original: {SGM.isomorphic(kappa_to_molecule(out), x1)}')
+    expression = canonical_to_expression(x1.canonical, x1.local_view_index)
     print(expression)
     print(f'decoded is isomorphic to original: {SGM.isomorphic(expression, x1)}')
