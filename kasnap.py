@@ -7,6 +7,7 @@ This module manages the 'mixture' of KappaMolecules.
 import re
 import os
 import json
+import io
 
 import kamol
 
@@ -166,7 +167,7 @@ class SnapShot:
                                         canon=canon)
                 self.event, self.origin_uuid, self.rg_state, self.time, self.complexes, self.local_views = value
             else:
-                raise Exception("Unknown file extension %s" % self.file)
+                raise Exception(f"Unknown file: {file}")
         elif complexes:
             self.complexes = complexes
             # get the list of local views in the mixture
@@ -239,7 +240,9 @@ class SnapShot:
 
 if __name__ == '__main__':
 
-    snap = SnapShot('TestData/snap__1773.ka')
+    snap = SnapShot('/Users/wf7/Desktop/PyKappa/Run78746/Analysis/temp.ka', canon=False)
+
+    # snap = SnapShot('TestData/snap__1773.ka')
     print(f'number of species: {snap.number_of_species}')
     print(f'number of local views at system level: {len(snap.local_views)}')
     print("size distribution")
