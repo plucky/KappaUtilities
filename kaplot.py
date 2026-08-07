@@ -4,27 +4,30 @@ import csv
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# plt.rcParams['pdf.fonttype'] = 42
-# mpl.rcParams['font.family'] = 'Helvetica'
-# mpl.rcParams['font.size'] = 18
-# Avoid mathtext (renders as embedded Type-3 paths, not real text)
-# for tick labels, and avoid the unicode minus sign, which isn't in
-# the core-font encoding.
-plt.rcParams['axes.formatter.use_mathtext'] = False
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.family'] = 'Helvetica'
-plt.rcParams['font.sans-serif'] = ['Helvetica']
-plt.rcParams['font.size'] = 18
-# plt.rcParams['text.usetex'] = True
-plt.rcParams['pdf.fonttype'] = 42
-plt.rcParams['figure.constrained_layout.use'] = True
-plt.rcParams["figure.constrained_layout.h_pad"] = 0
-plt.rcParams["figure.constrained_layout.w_pad"] = 0
-plt.rcParams["figure.constrained_layout.hspace"] = 1
-plt.rcParams["figure.constrained_layout.wspace"] = 0
-plt.rcParams['xtick.bottom'] = True
-plt.rcParams['ytick.left'] = True
 
+def default_plot_style():
+    # plt.rcParams['pdf.fonttype'] = 42
+    # mpl.rcParams['font.family'] = 'Helvetica'
+    # mpl.rcParams['font.size'] = 18
+    # Avoid mathtext (renders as embedded Type-3 paths, not real text)
+    # for tick labels, and avoid the unicode minus sign, which isn't in
+    # the core-font encoding.
+    plt.rcParams['axes.formatter.use_mathtext'] = False
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['font.family'] = 'Helvetica'
+    plt.rcParams['font.sans-serif'] = ['Helvetica']
+    plt.rcParams['font.size'] = 18
+    # plt.rcParams['text.usetex'] = True
+    plt.rcParams['pdf.fonttype'] = 42
+    plt.rcParams['figure.constrained_layout.use'] = True
+    plt.rcParams["figure.constrained_layout.h_pad"] = 0
+    plt.rcParams["figure.constrained_layout.w_pad"] = 0
+    plt.rcParams["figure.constrained_layout.hspace"] = 1
+    plt.rcParams["figure.constrained_layout.wspace"] = 0
+    plt.rcParams['xtick.bottom'] = True
+    plt.rcParams['ytick.left'] = True
+
+    return None
 
 def load_csv(file):
     x = []
@@ -121,10 +124,10 @@ class XYplot:
         self.ncurve = 0
         self.legend = None
 
-        self.fig, self.ax = plt.subplots(figsize=figsize)
+        self.fig, self.ax = plt.subplots(figsize=figsize, layout='tight')
         self.overlay_axis = None
 
-    def add(self, df, x='', y='', title='', xmajor=0, ymajor=0, params=None):
+    def add(self, df, x=None, y=None, x_label=None, y_label=None, title=None, grid=True, xmajor=0, ymajor=0, params=None):
         """
         ymajor: multiple for major y-tick marks (0 for auto)
         xmajor: multiple for major x-tick marks (0 for auto)
@@ -138,40 +141,39 @@ class XYplot:
             params = {}
         self.parameters = {**self.parameters, **params}
         self.ncurve += 1
-        self.parameters['label'] = self.parameters['label'] + f' [{self.ncurve}]'
-        if x == '':
+        # self.parameters['label'] = self.parameters['label'] + f' [{self.ncurve}]'
+        if not x:
             for idx, c in enumerate(df.columns):
                 if idx == self.default_x:
                     x = c
                     break
         self.x_axis = x
 
-        if y == '':
+        if not y:
             for idx, c in enumerate(df.columns):
                 if idx == self.default_y:
                     y = c
                     break
-        if title == '':
-            self.title = f'{x} vs {y}'
-        else:
-            self.title = title
 
         arts, = self.ax.plot(df[x], df[y], **self.parameters)
         self.artists[self.ncurve] = arts
 
+        if grid:
+            plt.grid(color='lightgrey')
         if xmajor != 0:
             self.ax.xaxis.set_major_locator(plt.MultipleLocator(xmajor))
         if ymajor != 0:
             self.ax.yaxis.set_major_locator(plt.MultipleLocator(ymajor))
-        plt.grid(color='lightgrey')
-        self.ax.set_xlabel(x)
-        self.ax.set_ylabel(y)
-        self.ax.set_title(title)
-        self.fig.tight_layout()
+        if x_label:
+            self.ax.set_xlabel(x_label)
+        if y_label:
+            self.ax.set_ylabel(y_label)
+        if title:
+            self.ax.set_title(title)
 
         self.parameters = self.parameters_save
 
-    def overlay(self, df, y='', ymajor=0, params={}, grid=False):
+    def overlay(self, df, y=None, y_label=None, ymajor=0, params=None, grid=False):
         """
         grid:
         ymajor: multiple for major y-tick marks (0 for auto)
@@ -181,28 +183,26 @@ class XYplot:
         """
         self.parameters = {**self.parameters, **params}
         self.ncurve += 1
-        self.parameters['label'] = self.parameters['label'] + f' [{self.ncurve}]'
 
         if self.overlay_axis:
             self.overlay_axis.remove()
-
         self.overlay_axis = self.ax.twinx()  # a second axes that shares the same x-axis
 
-        if y == '':
+        if not y:
             for idx, c in enumerate(df.columns):
                 if idx == self.default_y:
                     y = c
                     break
 
-        arts, = self.overlay_axis.plot(df[self.x_axis], df[y], 'o-', **self.parameters)
+        arts, = self.overlay_axis.plot(df[self.x_axis], df[y], **self.parameters)
         self.artists[self.ncurve] = arts
 
         if ymajor != 0:
             self.overlay_axis.yaxis.set_major_locator(plt.MultipleLocator(ymajor))
         if grid:
             plt.grid(color='lightgrey')
-        self.overlay_axis.set_ylabel(y)
-        self.fig.tight_layout()
+        if y_label:
+            self.overlay_axis.set_ylabel(y_label)
 
         self.parameters = self.parameters_save
 
