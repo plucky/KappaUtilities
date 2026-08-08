@@ -3,6 +3,7 @@
 import os
 import runpy
 import re
+from pathlib import Path
 import pykappa
 
 def start_pykappa_system(system_definition_file=None):
@@ -20,7 +21,7 @@ def start_pykappa_system(system_definition_file=None):
         print(f'system definition file {system_definition_file} not found.')
         return None
 
-def pykappa_state_to_snapshot(system_state=None, temp_directory=None):
+def pykappa_state_to_snapshot(system_state_file=None, output_directory=None, delta_t=0, with_id=False, sort=True):
     """
     Convert a pykappa system.save() to a KaSim-style snapshot readable by kasnap.py
     """
@@ -32,15 +33,36 @@ def pykappa_state_to_snapshot(system_state=None, temp_directory=None):
             return f"{prefix}{num} /*{count} agents*/ {rest}\n"
         return re.sub(r'(%init:\s*)(\d+)\s*(.*)', replacer, line)
 
-    system = pykappa.System.load(system_state)
-    events = sum([r['applied'] for r in system.tallies.values()])
-    uuid = f'"0000"'
-    time = system.time
-    temp_file = f'{temp_directory}/temp.ka'
+    def agent_count(line):
+        match = re.search(r"/\*(\d+)\s*agents?\*/", line)
+        return int(match.group(1))
 
-    with open(temp_file, "w") as fp:
+    system = pykappa.System.load(system_state_file)
+    events = sum([r.applied for r in system.tallies.values()])
+    uuid = f'"0000"'
+
+    p = Path(system_state_file)
+
+    if not delta_t:
+        time = system.time
+    else:
+        number_str = p.stem.split("_")[-1]
+        number = int(number_str)
+        # adjust snap.time
+        time = number * delta_t
+
+    if with_id:
+        lines = system.mixture.kappa_str_with_agent_ids.split('\n')
+    else:
+        lines = system.mixture.kappa_str.split('\n')
+    lines = list(map(add_agent_count, lines))  # add size
+    if sort:  # sort on size
+        lines = sorted(lines, key=agent_count, reverse=True)
+
+    ka_file = f'{output_directory}/{p.stem}.ka'
+    with open(ka_file, "w") as fp:
         prefix = f'// Snapshot [Event: {events}]\n// "uuid" : {uuid}\n%def: "T0" "{time}"\n\n'
         fp.write(prefix)
-        for l in system.mixture.kappa_str.split('\n'):
-            fp.write(add_agent_count(l))
-    return temp_file
+        for l in lines:
+            fp.write(l)
+    return ka_file
