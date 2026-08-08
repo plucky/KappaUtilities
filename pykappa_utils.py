@@ -3,8 +3,12 @@
 import os
 import runpy
 import re
+import zlib
+import base64
 from pathlib import Path
+
 import pykappa
+
 
 def start_pykappa_system(system_definition_file=None):
     """
@@ -66,3 +70,23 @@ def pykappa_state_to_snapshot(system_state_file=None, output_directory=None, del
         for l in lines:
             fp.write(l)
     return ka_file
+
+
+def binary_decompress(compressed_text):
+    # inverse of binary_compress()
+    #
+    compressed_bytes = base64.b64decode(compressed_text.encode('utf-8'))
+    decompressed_bytes = zlib.decompress(compressed_bytes)
+    return decompressed_bytes.decode('utf-8')
+
+
+def binary_compress(text):
+    # Convert to bytes
+    text_bytes = text.encode('utf-8')
+    compressed_bytes = zlib.compress(text_bytes, level=6)
+    #  safe ASCII string using Base64
+    return base64.b64encode(compressed_bytes).decode('utf-8')
+
+
+def get_maximer(system):
+    return max((component for component in system.mixture), key=lambda c: len(c))

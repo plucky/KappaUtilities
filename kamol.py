@@ -370,7 +370,7 @@ def canonical_to_representation(canonical, local_view_index, nav=True, canon=Tru
 
 def kappa_to_representation(k_expression, id_shift=0, nav=True, canon=False):
     """
-    Wrapper for creating a KappaExpression from a kappa string. A shortcut for everyday applications.
+    Wrapper for creating a KappaRepresentation from a kappa string. A shortcut for everyday applications.
     """
     parser = Kappa()
     return KappaRepresentation(agents=parser.parse(k_expression), id_shift=id_shift, nav=nav, canon=canon)
